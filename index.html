@@ -1902,18 +1902,29 @@ function openRecipeForm(seedEntries){
 }
 
 function renderProductsTab(content, fab){
-  content.innerHTML = `<div class="section-title">Моя база продуктов (на 100 г)</div>
-    <div class="card">${products.length ? products.map(p=>`
-      <div class="prod-row">
+  function prodRow(p){
+    return `<div class="prod-row">
         <div>
-          <div class="pname">${p.isRecipe?'🍳 ':''}${p.excludeFromPlan?'🚫 ':''}${invGet(p.id)>0?'🧊 ':''}${p.name}</div>
-          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs}${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.packageGrams?' · уп. '+p.packageGrams+'г':''}${p.price!=null?' · '+p.price+'₽':''}${invGet(p.id)>0?' · в хол. '+invGet(p.id)+'г':''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
+          <div class="pname">${p.isRecipe?'🍳 ':''}${p.excludeFromPlan?'🚫 ':''}${invGet(p.id)>0?'🧊 ':''}${isRawProduct(p)?'🥕 ':''}${p.name}</div>
+          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs}${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.packageGrams?' · уп. '+p.packageGrams+'г':''}${p.price!=null?' · '+p.price+'₽':''}${invGet(p.id)>0?' · в хол. '+invGet(p.id)+'г':''}${isRawProduct(p)?' · сырьё':''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
         </div>
         <div class="prod-actions">
           <button data-edit="${p.id}">✎</button>
           <button data-del="${p.id}">✕</button>
         </div>
-      </div>`).join('') : '<div class="empty">Список пуст</div>'}</div>
+      </div>`;
+  }
+  var groupsHtml = '';
+  if(!products.length){
+    groupsHtml = '<div class="card"><div class="empty">Список пуст</div></div>';
+  } else {
+    productsByGroups(products).forEach(function(g){
+      groupsHtml += '<div class="section-title">'+g.title+' ('+g.items.length+')</div><div class="card">'+g.items.map(prodRow).join('')+'</div>';
+    });
+  }
+  content.innerHTML = `<div class="section-title">Моя база продуктов (на 100 г)</div>
+    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">🥕 — сырьё (купить, чтобы потом приготовить). Остальное — готовое к еде.</div>
+    ${groupsHtml}
     <div class="section-title">Упражнения</div>
     <div class="card">${exercises.length ? exercises.map(function(e){
       return `<div class="prod-row">
@@ -2138,6 +2149,57 @@ function weeklyWeightPace(offset){
   };
 }
 
+
+var PRODUCT_GROUPS = [
+  { key:'protein', title:'Мясо / рыба / яйца' },
+  { key:'dairy', title:'Молочка' },
+  { key:'grain', title:'Крупы / корнеплоды / хлеб' },
+  { key:'veg', title:'Овощи' },
+  { key:'fruit', title:'Фрукты' },
+  { key:'other', title:'Иное' }
+];
+function productGroupKey(p){
+  ensureProductMeta(p);
+  var g = p.foodGroup || 'other';
+  if(['protein','dairy','grain','veg','fruit'].indexOf(g) >= 0) return g;
+  var n = (p.name||'').toLowerCase();
+  if(/яйц|рыб|тунц|куриц|индей|говяд|свинин|мясо|ветчин|сосиск|карпач/.test(n)) return 'protein';
+  if(/творог|йогурт|молоко|сыр|кефир|скир|протеин|пудинг|exponenta|teos|neo /.test(n)) return 'dairy';
+  if(/гречк|рис|овсян|хлеб|картоф|чечевиц|макарон|лаваш|перлов|пш[её]н/.test(n)) return 'grain';
+  if(/огур|помид|капуст|броккол|морков|салат|лук|перец/.test(n)) return 'veg';
+  if(/яблок|банан|мандар|груш|апельсин|ягод|киви/.test(n)) return 'fruit';
+  return 'other';
+}
+function productsByGroups(list){
+  list = (list || products).slice();
+  var used = {};
+  var out = [];
+  PRODUCT_GROUPS.forEach(function(g){
+    var items = list.filter(function(p){
+      if(used[p.id]) return false;
+      if(productGroupKey(p) === g.key){ used[p.id]=true; return true; }
+      return false;
+    }).sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
+    if(items.length) out.push({ key:g.key, title:g.title, items:items });
+  });
+  // leftovers
+  var rest = list.filter(function(p){ return !used[p.id]; }).sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
+  if(rest.length) out.push({ key:'other', title:'Иное', items:rest });
+  return out;
+}
+function isRawProduct(p){
+  if(p && p.isRaw === true) return true;
+  if(p && p.isRaw === false) return false;
+  var n = ((p && p.name) || '').toLowerCase();
+  // готовое / варёное — не сырьё
+  if(/варён|вареный|варёная|готовый|готовая|жарен|пюре|консерв|в собственном|отварн/.test(n)) return false;
+  if(/ exp|упаков|skyr|пудинг|йогурт|творог|сыр |ветчин|сосиск|хлеб|булка|лаваш|протеин/.test(n)) return false;
+  // сырьё по умолчанию для круп/корнеплодов в сухом виде
+  if(/картофел|картош|макарон|спагет|гречка сух|рис сух|овсянк[а-я]* сух|крупа|мука|чечевица красная|фасоль сух/.test(n)) return true;
+  if(/сухая|сухой|сухие/.test(n) && /греч|рис|овсян|чечев|перлов|пш[её]н/.test(n)) return true;
+  return false;
+}
+
 function renderFridgeTab(content, fab){
   var groups = [
     { key:'protein', title:'Мясо / рыба / яйца', match: function(p){ return (p.foodGroup==='protein') || /яйц|рыб|тунц|куриц|индей|говяд|свинин|мясо|ветчин|сосиск|карпач/i.test(p.name||''); } },
@@ -2169,11 +2231,9 @@ function renderFridgeTab(content, fab){
     html += '<div class="section-title">'+g.title+'</div><div class="card">';
     list.forEach(function(p){
       var gms = invGet(p.id);
-      var note = (inventory[p.id] && inventory[p.id].note) ? inventory[p.id].note : '';
+      var note = '';
       html += '<div class="entry" data-fr-edit="'+p.id+'" style="cursor:pointer;">'+
-        '<div class="name">'+p.name+
-          (note?'<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+note+'</div>':'')+
-        '</div>'+
+        '<div class="name">'+p.name+(isRawProduct(p)?' · 🥕':'')+'</div>'+
         '<div class="kcal">'+gms+' г</div></div>';
     });
     html += '</div>';
@@ -2190,46 +2250,100 @@ function renderFridgeTab(content, fab){
 }
 function openFridgeAdd(){
   var root = document.getElementById('modalRoot');
-  var opts = products.slice().sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); }).map(function(p){
-    return '<option value="'+p.id+'">'+p.name+(invGet(p.id)?' (есть '+invGet(p.id)+'г)':'')+'</option>';
-  }).join('');
-  root.innerHTML = '<div class="overlay" id="ov"><div class="sheet">'+
-    '<h2>В холодильник</h2>'+
-    '<div class="field"><label>Продукт</label><select id="frProd" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--card);font-size:15px;"><option value="">—</option>'+opts+'</select></div>'+
-    '<div class="field"><label>Сколько грамм</label><input id="frG" type="number" inputmode="decimal" placeholder="400"></div>'+
-    '<div class="field"><label>Заметка</label><input id="frNote" type="text" placeholder="общее / моё"></div>'+
-    '<div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>'+
-    '</div></div>';
-  document.getElementById('cancelBtn').onclick = closeModal;
-  document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
-  document.getElementById('saveBtn').onclick = function(){
-    var id = document.getElementById('frProd').value;
-    var g = parseFloat(document.getElementById('frG').value);
-    var note = (document.getElementById('frNote').value||'').trim();
-    if(!id || !(g>0)){ showToast('Выбери продукт и граммы'); return; }
-    invSet(id, g, note);
-    closeModal();
-    showToast('В холодильнике');
-    render();
-  };
+  var selected = null;
+  function packUnit(p){
+    var step = packageStep(p);
+    if(step > 0) return { step: step, label: (productHasPortion(p) && p.portionName) ? p.portionName : 'уп.', byPack: true };
+    if(productHasPortion(p) && p.portionGrams > 0) return { step: p.portionGrams, label: p.portionName || 'порция', byPack: true };
+    return { step: 0, label: 'г', byPack: false };
+  }
+  function draw(){
+    var q = ((document.getElementById('frSearch') && document.getElementById('frSearch').value) || '').trim().toLowerCase();
+    var list = products.filter(function(p){
+      if(!q) return true;
+      return (p.name||'').toLowerCase().indexOf(q) >= 0;
+    });
+    var groups = productsByGroups(list);
+    var body = '';
+    groups.forEach(function(g){
+      body += '<div style="font-size:11px;color:var(--muted);margin:10px 0 4px;font-weight:600;">'+g.title+'</div>';
+      g.items.forEach(function(p){
+        var sel = selected && selected.id === p.id;
+        var have = invGet(p.id);
+        body += '<div class="search-item'+(sel?' selected':'')+'" data-fr-pick="'+p.id+'">'+
+          '<span>'+p.name+(have?' · есть '+have+'г':'')+(isRawProduct(p)?' · 🥕':'')+'</span>'+
+          '<span class="sm">'+(packageStep(p)|| (productHasPortion(p)?p.portionGrams:'—'))+'</span></div>';
+      });
+    });
+    if(!body) body = '<div class="empty" style="padding:16px;">Ничего не найдено</div>';
+    var unit = selected ? packUnit(selected) : { step:0, byPack:false, label:'г' };
+    var qtyLabel = unit.byPack ? ('Количество ('+unit.label+', по '+unit.step+' г)') : 'Сколько грамм';
+    var qtyPh = unit.byPack ? '1' : '400';
+    root.innerHTML = '<div class="overlay" id="ov"><div class="sheet">'+
+      '<h2>В холодильник</h2>'+
+      '<div class="field"><label>Поиск</label><input id="frSearch" type="search" placeholder="Начни вводить…" value="'+(q||'').replace(/"/g,'&quot;')+'"></div>'+
+      '<div class="search-list" id="frList" style="max-height:220px;">'+body+'</div>'+
+      (selected ? '<div style="font-size:13px;margin:10px 0 4px;"><b>'+selected.name+'</b>'+(unit.byPack?' · только целыми '+unit.label:'')+'</div>' : '')+
+      '<div class="field"><label>'+qtyLabel+'</label><input id="frG" type="number" inputmode="decimal" placeholder="'+qtyPh+'" value="'+(unit.byPack?'1':'')+'"></div>'+
+      '<div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>'+
+      '</div></div>';
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
+    var search = document.getElementById('frSearch');
+    search.oninput = function(){ draw(); setTimeout(function(){ var s=document.getElementById('frSearch'); if(s){ s.focus(); s.setSelectionRange(s.value.length,s.value.length); } }, 0); };
+    root.querySelectorAll('[data-fr-pick]').forEach(function(el){
+      el.onclick = function(){
+        selected = products.find(function(p){ return p.id === el.getAttribute('data-fr-pick'); });
+        draw();
+      };
+    });
+    document.getElementById('saveBtn').onclick = function(){
+      if(!selected){ showToast('Выбери продукт'); return; }
+      var raw = parseFloat(document.getElementById('frG').value);
+      if(!(raw > 0)){ showToast('Укажи количество'); return; }
+      var u = packUnit(selected);
+      var grams;
+      if(u.byPack){
+        var n = Math.max(1, Math.round(raw));
+        grams = n * u.step;
+      } else {
+        grams = raw;
+      }
+      var prev = invGet(selected.id);
+      invSet(selected.id, prev + grams, '');
+      closeModal();
+      showToast((prev? 'Дописано · ':'')+selected.name+' · '+round(grams)+' г');
+      render();
+    };
+  }
+  draw();
 }
 function openFridgeEdit(p){
   var root = document.getElementById('modalRoot');
   var g0 = invGet(p.id);
-  var n0 = (inventory[p.id] && inventory[p.id].note) || '';
+  var step = packageStep(p) || (productHasPortion(p) ? p.portionGrams : 0);
+  var byPack = step > 0;
+  var qty0 = byPack ? (Math.round(g0 / step * 10) / 10) : g0;
+  var lab = byPack ? ('Количество (×'+step+' г)') : 'Грамм в холодильнике';
   root.innerHTML = '<div class="overlay" id="ov"><div class="sheet">'+
     '<h2>'+p.name+'</h2>'+
-    '<div class="field"><label>Грамм в холодильнике</label><input id="frG" type="number" inputmode="decimal" value="'+g0+'"></div>'+
-    '<div class="field"><label>Заметка</label><input id="frNote" type="text" value="'+n0.replace(/"/g,'&quot;')+'" placeholder="общее / моё"></div>'+
+    '<div class="field"><label>'+lab+'</label><input id="frG" type="number" inputmode="decimal" value="'+qty0+'"></div>'+
+    (byPack ? '<div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Только целые упаковки/порции · сейчас ~'+round(g0)+' г</div>' : '')+
     '<div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>'+
     '<button class="btn danger" id="frClear" style="width:100%;margin-top:10px;">Убрать из холодильника</button>'+
     '</div></div>';
   document.getElementById('cancelBtn').onclick = closeModal;
   document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
   document.getElementById('saveBtn').onclick = function(){
-    var g = parseFloat(document.getElementById('frG').value);
-    var note = (document.getElementById('frNote').value||'').trim();
-    invSet(p.id, isNaN(g)?0:g, note);
+    var raw = parseFloat(document.getElementById('frG').value);
+    var g;
+    if(byPack){
+      if(!(raw > 0)) g = 0;
+      else g = Math.max(1, Math.round(raw)) * step;
+    } else {
+      g = isNaN(raw) ? 0 : raw;
+    }
+    invSet(p.id, g, '');
     closeModal(); render();
   };
   document.getElementById('frClear').onclick = function(){
@@ -2431,8 +2545,8 @@ function renderWeightTab(content, fab, append){
     <div class="section-title">Две последние недели</div>
     ${weekHtml}
     <div class="section-title">Динамика веса</div>${chart || '<div class="empty" style="padding:20px;">Добавь минимум 2 записи для графика</div>'}
-    <div class="section-title">Записи веса</div>
-    <div class="card">${rev.length ? rev.map(function(w){
+    <div class="section-title" id="weightLogToggle" style="cursor:pointer;user-select:none;">Записи веса ${rev.length?'('+rev.length+') · нажми, чтобы '+(window._weightLogOpen?'свернуть':'развернуть'):''}</div>
+    <div class="card" id="weightLogList" style="${window._weightLogOpen?'':'display:none'}">${rev.length ? rev.map(function(w){
       var prev = byDate[w.date] ? byDate[w.date].prev : null;
       var flag = jumpFlag(w, prev);
       return `<div class="weight-row" data-goto-date="${w.date}" style="cursor:pointer;">
@@ -2469,6 +2583,13 @@ function renderWeightTab(content, fab, append){
   if(append) content.insertAdjacentHTML('beforeend', _whtml);
   else content.innerHTML = _whtml;
 
+  var wToggle = document.getElementById('weightLogToggle');
+  if(wToggle){
+    wToggle.onclick = function(){
+      window._weightLogOpen = !window._weightLogOpen;
+      render();
+    };
+  }
   content.querySelectorAll('[data-wdel]').forEach(function(b){
     b.onclick = function(ev){
       ev.stopPropagation();
@@ -2795,13 +2916,6 @@ function renderReportTab(content, fab){
       <div class="entry"><div class="name">Режим</div><div class="kcal" style="font-size:12px;">${goals.smartAdjust?'Умный':'Спокойный'}</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;">Ориентир 1700 / 150 / 60 / 140. Клетчатка и овощи — мягкие цели, не авария.</div>
     </div>
-    <div class="section-title">Список покупок (по пробелам)</div>
-    <div class="card">
-      ${shoppingListFromGaps().map(function(it){ return '<div class="entry"><div class="name">'+it+'</div></div>'; }).join('')}
-    </div>
-    <div class="card" style="margin-top:10px;">
-      <button class="btn primary" id="applyRecGoals" style="width:100%;">Применить рекомендуемые цели (1700 / 150 / 60 / 140)</button>
-    </div>
     ${(function(){
       var div = dietDiversity(7);
       var gLabels = {veg:'Овощи',fruit:'Фрукты',grain:'Крупы',protein:'Белок',dairy:'Молочное',other:'Прочее'};
@@ -2814,9 +2928,6 @@ function renderReportTab(content, fab){
         '<div class="entry"><div class="name">Ср. клетчатка</div><div class="kcal">'+round(div.avgFiber)+' г</div></div>'+
         '<div class="entry"><div class="name">Ср. овощи / фрукты</div><div class="kcal" style="font-size:13px;">'+round(div.avgVeg)+' / '+round(div.avgFruit)+' г</div></div>'+
         '<div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;">'+groupsLine+'</div>'+
-        '<div id="localDivTips" style="margin-top:10px;font-size:13px;line-height:1.45;"></div>'+
-        '<button class="btn primary" id="copyAiSummaryBtn" style="width:100%;margin-top:12px;">Скопировать сводку для ChatGPT / Grok / Gemini</button>'+
-        '<div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4;">Вставь текст в бесплатный чат AI. Ключи API в приложении не используются.</div>'+
       '</div>';
     })()}
     <div class="section-title">Данные</div>
@@ -2833,45 +2944,6 @@ function renderReportTab(content, fab){
     };
   });
   document.getElementById('goalsCard').onclick = openGoalsForm;
-  document.getElementById('applyRecGoals').onclick = function(){
-    goals.kcal = 1700;
-    goals.protein = 150;
-    goals.fat = 60;
-    goals.carbs = 140;
-    goals.trainKcal = 1700;
-    goals.trainProtein = 150;
-    goals.trainFat = 60;
-    goals.trainCarbs = 140;
-    if(!goals.maintenanceKcal) goals.maintenanceKcal = 2000;
-    goals.fiberTarget = 28;
-    goals.vegFruitTarget = 500;
-    goals.smartAdjust = false;
-    sSet('goals', goals);
-    showToast('Цели 1700 · спокойный режим');
-    render();
-  };
-  var localTipsEl = document.getElementById('localDivTips');
-  if(localTipsEl){
-    var tips = diversityTips(dietDiversity(7));
-    if(tips.length){
-      localTipsEl.innerHTML = tips.map(function(t){
-        return '<div style="margin:6px 0;color:'+(t.type==='warn'?'var(--red)':'var(--green)')+';">• '+t.text+'</div>';
-      }).join('');
-    }
-  }
-  var copyAiBtn = document.getElementById('copyAiSummaryBtn');
-  if(copyAiBtn) copyAiBtn.onclick = function(){
-    var prompt = 'Ты нутрициолог. Кратко (5–8 пунктов на русском) оцени рацион для похудения с сохранением мышц. Цели уже заданы. Без воды. Конкретные продукты и действия.\n\n'+buildDietSummaryForAI();
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(prompt).then(function(){
-        showToast('Сводка скопирована');
-      }).catch(function(){
-        fallbackCopyText(prompt);
-      });
-    } else {
-      fallbackCopyText(prompt);
-    }
-  };
   document.getElementById('exportBtn').onclick = exportData;
   document.getElementById('importBtn').onclick = ()=>document.getElementById('importFile').click();
   document.getElementById('importFile').onchange = importData;
@@ -3484,10 +3556,11 @@ function openProductForm(existing){
           <input type="checkbox" id="pNoPlan" ${existing&&existing.excludeFromPlan?'checked':''} style="width:20px;height:20px;accent-color:var(--green);">
           <span>Не подбирать в автоплан / список покупок</span>
         </label>
-        <div class="row2">
-          <div class="field"><label>В холодильнике, г</label><input id="pInv" type="number" inputmode="decimal" placeholder="0" value="${existing?invGet(existing.id)||'':''}"></div>
-          <div class="field"><label>Заметка</label><input id="pInvNote" type="text" placeholder="общее / моё" value="${existing&&inventory[existing.id]? (inventory[existing.id].note||'') : ''}"></div>
-        </div>
+        <label style="display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:13px;">
+          <input type="checkbox" id="pIsRaw" ${existing&&isRawProduct(existing)?'checked':''} style="width:20px;height:20px;accent-color:var(--green);">
+          <span><b>Сырьё</b> (нужно готовить: картофель, крупа, макароны…)<br><span style="color:var(--muted);font-size:12px;">Сними галочку для готового блюда (варёный рис, пюре…)</span></span>
+        </label>
+        <div class="field"><label>В холодильнике, г</label><input id="pInv" type="number" inputmode="decimal" placeholder="0" value="${existing?invGet(existing.id)||'':''}"></div>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
           <button class="btn primary" id="saveBtn">Сохранить</button>
@@ -3517,12 +3590,13 @@ function openProductForm(existing){
     const price = parseFloat(document.getElementById('pPrice').value);
     const excludeFromPlan = !!(document.getElementById('pNoPlan') && document.getElementById('pNoPlan').checked);
     const invG = parseFloat(document.getElementById('pInv').value);
-    const invNote = (document.getElementById('pInvNote').value || '').trim();
+    const isRaw = !!(document.getElementById('pIsRaw') && document.getElementById('pIsRaw').checked);
     if(!name || isNaN(kcal)){ showToast('Заполни название и калории'); return; }
     var portion = {
       fiber: isNaN(fiber) ? 0 : fiber,
       foodGroup: foodGroup,
       excludeFromPlan: excludeFromPlan,
+      isRaw: typeof isRaw !== "undefined" ? isRaw : false,
       packageGrams: (packageGrams > 0) ? packageGrams : null,
       price: (!isNaN(price) && price >= 0) ? price : null
     };
@@ -3542,7 +3616,7 @@ function openProductForm(existing){
       products.push(Object.assign({id:pid, name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs}, portion));
     }
     sSet('products', products);
-    if(!isNaN(invG) && invG >= 0) invSet(pid, invG, invNote);
+    if(!isNaN(invG) && invG >= 0) invSet(pid, invG, '');
     closeModal();
     render();
   };

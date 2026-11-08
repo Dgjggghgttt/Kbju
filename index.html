@@ -1005,6 +1005,87 @@ function ensureProductMeta(p){
   return p;
 }
 
+/**
+ * Ценность продукта 0–10 по полезности (не по калориям).
+ * Жир из рыбы/авокадо/оливок > жир из жареного; овощи — за витамины/клетчатку;
+ * ультра-обработка и сладкие напитки режут балл.
+ */
+function productValueScore(p){
+  if(!p) return 0;
+  ensureProductMeta(p);
+  var n = (p.name || '').toLowerCase();
+  var g = p.foodGroup || 'other';
+  var score = 5;
+  var pr = p.protein || 0, fa = p.fat || 0, ca = p.carbs || 0, fi = p.fiber || 0, k = p.kcal || 1;
+
+  // --- база по группе ---
+  if(g === 'veg') score = 8.5;
+  else if(g === 'fruit') score = 7.5;
+  else if(g === 'protein') score = 7;
+  else if(g === 'dairy') score = 6.5;
+  else if(g === 'grain') score = 5.5;
+  else score = 4;
+
+  // --- качество жира / омега ---
+  if(/лосос|сёмг|семг|форел|скумбр|сельдь|сардин|тунец|авокадо|оливк|льнян|грецк.*орех|жирн.*рыб/.test(n)){
+    score += 1.8; // полезные жиры
+  }
+  if(/жарен|фри|бургер|майонез|спред|маргарин/.test(n)) score -= 1.5;
+  if(/яйц.*жарен|жарен.*яйц/.test(n)) score -= 0.8; // vs варёное/сырое
+
+  // --- белок: плотность ---
+  if(pr >= 20 && k > 0 && (pr * 4 / k) > 0.35) score += 0.8;
+  if(pr >= 15 && fa <= 5 && ca <= 5) score += 0.5; // «чистое» мясо/рыба
+
+  // --- овощи: клетчатка и «витаминный» профиль ---
+  if(g === 'veg'){
+    if(fi >= 2.5) score += 0.6;
+    if(/броккол|шпинат|капуст|морков|перец|тыкв|черри|помидор|лист/.test(n)) score += 0.5;
+    if(/солен|марин|кимчи/.test(n) && !/свеж/.test(n)) score -= 0.4;
+  }
+  if(g === 'fruit'){
+    if(/авокадо/.test(n)) score += 1.2;
+    if(/яблок|ягод|киви|апельсин|мандар/.test(n)) score += 0.3;
+    if(ca > 20 && fi < 1.5) score -= 0.3; // сладкие с низкой клетчаткой
+  }
+
+  // --- крупы / хлеб ---
+  if(g === 'grain'){
+    if(/овсян|гречк|бурый|цельноз|отруб|хлебец|бородин/.test(n)) score += 0.8;
+    if(/белый|батон|булка|сэндвич|american|лаваш|лепеш|макарон.*вар/.test(n)) score -= 0.3;
+    if(/фри|чип|сухар|saltletts|крекер/.test(n)) score -= 1.5;
+  }
+
+  // --- молочка: творог/йогурт без сахара vs десерты ---
+  if(g === 'dairy'){
+    if(/творог|скир|греческ|протеин|белок/.test(n) && !/шоколад|карамел|сахар|десерт/.test(n)) score += 0.7;
+    if(/0%|0\.|обезжир|станци/.test(n) && pr >= 10) score += 0.3;
+    if(/шоколад|карамел|пудинг|коровк/.test(n)) score -= 0.5;
+  }
+
+  // --- ультра-обработка / мусор ---
+  if(/пельмен|блинчик|биточек|шницель|шашлык|торт|зефир|мармелад|пастил|конфет|ммдм|м&m|sugar|сахар$|bon pari|шарлиз/.test(n)) score -= 2;
+  if(/adrenaline|burn|энерг|кола|sprite|фант/.test(n)) score -= 2.5;
+  if(/кафе|пят[её]рочк.*кафе|бургер кинг|рестор/.test(n)) score -= 1.2;
+  if(p.excludeFromPlan) score -= 0.5;
+
+  // --- клетчатка бонус ---
+  if(fi >= 5) score += 0.7;
+  else if(fi >= 3) score += 0.4;
+
+  // ручная переопределение, если задали value вручную 0–10
+  if(p.value != null && !isNaN(p.value)) score = +p.value;
+
+  score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
+  return score;
+}
+function valueBadge(score){
+  if(score >= 8) return { t: 'высокая', c: 'var(--green)' };
+  if(score >= 6) return { t: 'средняя', c: 'var(--amber)' };
+  if(score >= 4) return { t: 'ниже ср.', c: 'var(--muted)' };
+  return { t: 'низкая', c: 'var(--red)' };
+}
+
 /** Снимок КБЖУ на момент записи — дневник не зависит от будущих правок базы */
 function snapshotFromProduct(p, grams){
   ensureProductMeta(p);
@@ -2003,7 +2084,7 @@ function renderProductsTab(content, fab){
     return `<div class="prod-row">
         <div>
           <div class="pname">${p.isRecipe?'🍳 ':''}${p.excludeFromPlan?'🚫 ':''}${invGet(p.id)>0?'🧊 ':''}${isRawProduct(p)?'🥕 ':''}${p.name}</div>
-          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs}${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.packageGrams?' · уп. '+p.packageGrams+'г':''}${p.price!=null?' · '+p.price+'₽':''}${invGet(p.id)>0?' · в хол. '+invGet(p.id)+'г':''}${isRawProduct(p)?' · сырьё':''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
+          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs} · <span style="color:${valueBadge(productValueScore(p)).c};font-weight:600;">★${productValueScore(p)}</span>${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.packageGrams?' · уп. '+p.packageGrams+'г':''}${p.price!=null?' · '+p.price+'₽':''}${invGet(p.id)>0?' · в хол. '+invGet(p.id)+'г':''}${isRawProduct(p)?' · сырьё':''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
         </div>
         <div class="prod-actions">
           <button data-edit="${p.id}">✎</button>
@@ -3649,6 +3730,8 @@ function openProductForm(existing){
           <div class="field"><label>Цена за упаковку, ₽</label><input id="pPrice" type="number" inputmode="decimal" placeholder="120" value="${existing&&existing.price!=null?existing.price:''}"></div>
         </div>
         <div style="font-size:11px;color:var(--muted);margin:-4px 0 8px;line-height:1.35;">Автоподбор будет кратен упаковке (тунец 130 г → 130/260…). Цена — вручную; сайты из браузера часто блокируют парсинг (CORS).</div>
+        <div class="field"><label>Ценность 0–10 (пусто = авто)</label><input id="pValue" type="number" inputmode="decimal" min="0" max="10" step="0.5" placeholder="авто" value="${existing&&existing.value!=null?existing.value:''}"></div>
+        <div style="font-size:11px;color:var(--muted);margin:-6px 0 10px;line-height:1.35;">Авто: рыба/авокадо/овощи выше; жареное и сладкое ниже. Можно задать вручную.</div>
         <label style="display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:13px;">
           <input type="checkbox" id="pNoPlan" ${existing&&existing.excludeFromPlan?'checked':''} style="width:20px;height:20px;accent-color:var(--green);">
           <span>Не подбирать в автоплан / список покупок</span>
@@ -3695,6 +3778,7 @@ function openProductForm(existing){
       excludeFromPlan: excludeFromPlan,
       isRaw: typeof isRaw !== "undefined" ? isRaw : false,
       packageGrams: (packageGrams > 0) ? packageGrams : null,
+      value: (function(){ var v=parseFloat(document.getElementById('pValue')&&document.getElementById('pValue').value); return (!isNaN(v)&&v>=0&&v<=10)?v:null; })(),
       price: (!isNaN(price) && price >= 0) ? price : null
     };
     if(portionName && portionGrams > 0){
@@ -4538,9 +4622,11 @@ function autoBuildPool(counts){
     var role = autoRoleOf(p);
     if(!role) return;
     var c = counts[p.id] || 0;
+    var val = productValueScore(p);
     var w = staple ? 1.2 : (0.6 + Math.min(c, 8) * 0.5 + (favorites.indexOf(p.id) >= 0 ? 3 : 0));
     if(invGet(p.id) > 0) w += 2.5;
-    pool[role].push({ key: autoNameKey(p), p: p, staple: !!staple, w: w, kind: role === 'prot' ? autoKind(p) : null });
+    w += (val - 5) * 0.35; // полезнее → чаще в автоплане
+    pool[role].push({ key: autoNameKey(p), p: p, staple: !!staple, w: Math.max(0.05, w), kind: role === 'prot' ? autoKind(p) : null });
   }
   var names = {};
   products.forEach(function(p){ names[autoNameKey(p)] = true; add(p, false); });
@@ -4555,8 +4641,9 @@ function autoBuildPoolFridge(counts){
     var role = autoRoleOf(p);
     if(!role) return;
     var c = counts[p.id] || 0;
-    var w = 1 + Math.min(c, 8) * 0.3 + Math.min(invGet(p.id)/100, 5);
-    pool[role].push({ key: autoNameKey(p), p: p, staple: false, w: w, kind: role === 'prot' ? autoKind(p) : null });
+    var val = productValueScore(p);
+    var w = 1 + Math.min(c, 8) * 0.3 + Math.min(invGet(p.id)/100, 5) + (val - 5) * 0.35;
+    pool[role].push({ key: autoNameKey(p), p: p, staple: false, w: Math.max(0.05, w), kind: role === 'prot' ? autoKind(p) : null });
   });
   return pool;
 }

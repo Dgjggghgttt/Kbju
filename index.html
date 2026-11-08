@@ -2500,51 +2500,6 @@ function renderWeightTab(content, fab, append){
   var tipsM = document.getElementById('measureTipsBtn');
   if(tipsM) tipsM.onclick = openMeasureTips;
 
-  var projDateBtn = document.getElementById('projDateBtn');
-  if(projDateBtn && proj){
-    projDateBtn.onclick = function(){
-      var iso = document.getElementById('projDateInput').value;
-      var el = document.getElementById('projDateResult');
-      if(!iso){ el.innerHTML = '<span style="color:var(--muted)">Укажи дату</span>'; return; }
-      var days = daysUntilDate(iso);
-      if(days < 0){ el.innerHTML = 'Дата в прошлом'; return; }
-      var w7 = weightByDate(proj.current, proj.maint, proj.avg7.avg, iso);
-      var w30 = weightByDate(proj.current, proj.maint, proj.avg30.avg, iso);
-      var wall = weightByDate(proj.current, proj.maint, proj.avgAll.avg, iso);
-      var html = '<div class="entry"><div class="name">Через '+days+' дн.</div><div class="kcal">'+fmtDateHuman(iso)+'</div></div>';
-      html += '<div class="entry"><div class="name">Если есть как за 7 дн. ('+round(proj.avg7.avg)+' ккал)</div><div class="kcal">'+(w7!=null?w7+' кг':'—')+'</div></div>';
-      html += '<div class="entry"><div class="name">Если как за 30 дн. ('+round(proj.avg30.avg)+' ккал)</div><div class="kcal">'+(w30!=null?w30+' кг':'—')+'</div></div>';
-      html += '<div class="entry"><div class="name">Если как за всё время ('+round(proj.avgAll.avg)+' ккал)</div><div class="kcal">'+(wall!=null?wall+' кг':'—')+'</div></div>';
-      el.innerHTML = html;
-    };
-  }
-  var kcalByDateBtn = document.getElementById('kcalByDateBtn');
-  if(kcalByDateBtn && proj){
-    kcalByDateBtn.onclick = function(){
-      var iso = document.getElementById('kcalByDateInput').value;
-      var el = document.getElementById('kcalByDateResult');
-      if(!iso){ el.innerHTML = '<span style="color:var(--muted)">Укажи дату</span>'; return; }
-      var days = daysUntilDate(iso);
-      if(days <= 0){ el.innerHTML = 'Нужна будущая дата'; return; }
-      var need = kcalToHitTargetByDate(proj.current, proj.target, proj.maint, iso);
-      if(need == null){ el.innerHTML = 'Не удалось посчитать'; return; }
-      var kgLeft = proj.current - proj.target;
-      var html = '';
-      if(kgLeft <= 0){
-        html = 'Цель уже достигнута или выше текущего веса.';
-      } else {
-        var safe = need < 1200;
-        html += '<div class="entry"><div class="name">Нужно в среднем</div><div class="kcal" style="'+(safe?'color:var(--red);font-weight:700':'')+'">'+need+' ккал/день</div></div>';
-        html += '<div style="font-size:12px;color:var(--muted);margin:6px 0 8px;line-height:1.4;">За '+days+' дн. сбросить '+round(kgLeft)+' кг (поддержание '+proj.maint+').</div>';
-        if(safe) html += '<div style="font-size:12px;color:var(--red);margin-bottom:8px;">Слишком агрессивно — лучше отодвинуть дату.</div>';
-        html += '<div style="font-size:12px;margin-top:4px;">Сейчас в среднем:</div>';
-        html += '<div class="entry"><div class="name">7 дней</div><div class="kcal">'+round(proj.avg7.avg)+' ккал</div></div>';
-        html += '<div class="entry"><div class="name">30 дней</div><div class="kcal">'+round(proj.avg30.avg)+' ккал</div></div>';
-        html += '<div class="entry"><div class="name">Всё время</div><div class="kcal">'+round(proj.avgAll.avg)+' ккал</div></div>';
-      }
-      el.innerHTML = html;
-    };
-  }
   var weekOlder = document.getElementById('weekPairOlder');
   var weekNewer = document.getElementById('weekPairNewer');
   if(weekOlder) weekOlder.onclick = function(){ weekPairOffset = Math.min(12, weekPairOffset + 1); render(); };

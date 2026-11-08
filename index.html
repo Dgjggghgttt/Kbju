@@ -2466,7 +2466,7 @@ function renderWeightTab(content, fab, append){
         </div>`;
       }).join('');
     })()}</div>`;
-  if(append) content.innerHTML += _whtml;
+  if(append) content.insertAdjacentHTML('beforeend', _whtml);
   else content.innerHTML = _whtml;
 
   content.querySelectorAll('[data-wdel]').forEach(function(b){
@@ -4405,7 +4405,7 @@ function autoPick(weights){
   }
   return weights.length - 1;
 }
-function autoMakeItem(c, role, slot){
+function autoMakeItem(c, role, slot, ctx){
   var p = c.p;
   if(p.excludeFromPlan) return null;
   var dens = Math.max(p.kcal || 0, 1) / 100;
@@ -4445,6 +4445,15 @@ function autoMakeItem(c, role, slot){
     var maxFromInv = Math.floor(have / portionStep) * portionStep;
     if(maxFromInv >= portionStep) maxG = Math.min(maxG, maxFromInv);
     else { /* нет целой упаковки дома — всё равно можно предложить купить 1 */ }
+  }
+  if(ctx && ctx.stock){
+    // «Чистим холодильник»: не больше остатка запаса, и только если хватает на минимальную порцию
+    var rem = ctx.stock[c.key];
+    if(rem == null) return null;
+    var capG = Math.floor(rem / step) * step;
+    if(capG < minG) return null;
+    maxG = Math.min(maxG, capG);
+    minG = Math.min(minG, maxG);
   }
   g = Math.min(maxG, Math.max(minG, g));
   return {
@@ -4517,7 +4526,7 @@ function autoTrial(slots, pool, ctx){
       if(Math.random() > t.p) return;
       var list = pool[t.role];
       if(!list || !list.length) return;
-      var allowDup = (t.role === 'veg' || t.role === 'fat');
+      var allowDup = !ctx.stock && (t.role === 'veg' || t.role === 'fat');
       var weights = list.map(function(c){
         if(!allowDup && used[c.key]) return 0;
         var w = c.w;
@@ -4528,7 +4537,7 @@ function autoTrial(slots, pool, ctx){
       });
       var idx = autoPick(weights);
       if(idx < 0) return;
-      var item = autoMakeItem(list[idx], t.role, slot);
+      var item = autoMakeItem(list[idx], t.role, slot, ctx);
       if(!item) return;
       used[list[idx].key] = true;
       items.push(item);
@@ -4596,12 +4605,35 @@ function autoGenerate(scope, date, opts){
     });
   });
   var ctx = { usage: usage, style: opts.style, trials: scope === 'day' ? 260 : 140 };
+  if(opts.style === 'fridge'){
+    // остаток запаса по продуктам; расходуется по мере заполнения дней
+    ctx.stock = {};
+    products.forEach(function(p){
+      var h = invGet(p.id);
+      if(h > 0){ var k = autoNameKey(p); ctx.stock[k] = Math.max(ctx.stock[k] || 0, h); }
+    });
+    weekDates.forEach(function(d){
+      if(dates.indexOf(d) >= 0 && opts.replace) return;
+      getPlan(d).forEach(function(e){
+        var p = e.productId ? products.find(function(pr){ return pr.id === e.productId; }) : null;
+        if(!p) return;
+        var k = autoNameKey(p);
+        if(ctx.stock[k] != null) ctx.stock[k] -= (e.grams || 0);
+      });
+    });
+  }
   var out = [];
   dates.forEach(function(d){
     var existing = opts.replace ? [] : getPlan(d);
     var r = autoFillDay(d, existing, pool, ctx, opts);
     r.replaced = !!opts.replace && getPlan(d).length > 0;
-    r.added.forEach(function(a){ bump(a.p); });
+    r.added.forEach(function(a){
+      bump(a.p);
+      if(ctx.stock){
+        var k = autoNameKey(a.p);
+        if(ctx.stock[k] != null) ctx.stock[k] -= a.grams;
+      }
+    });
     out.push(r);
   });
   return out;
@@ -4629,7 +4661,7 @@ function openAutoPlan(scope, date){
   function dayLine(r){
     var G = baseGoals(r.date), T = r.T;
     var fiberGoal = goals.fiberTarget || 28, vfGoal = goals.vegFruitTarget || 500;
-    var bad = T.kcal > G.kcal * 1.04 || T.protein < G.protein * 0.93;
+    var bad = T.kcal > G.kcal * 1.04 || T.protein < G.protein * 0.93 || (opts.style === 'fridge' && T.kcal < G.kcal * 0.9);
     return (bad ? '⚠ ' : '')+Math.round(T.kcal)+' ккал · Б '+Math.round(T.protein)+' · Ж '+Math.round(T.fat)+' · У '+Math.round(T.carbs)+
       ' · Кл '+round(T.fiber)+' · О+Ф '+Math.round(T.vf);
   }

@@ -1,4 +1,4 @@
-const CACHE = 'kbju-v3';
+const CACHE = 'kbju-v4';
 const ASSETS = [
   './',
   './index.html',

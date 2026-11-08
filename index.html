@@ -444,23 +444,25 @@ function topUpDecision(date){
   }
 
   // --- калории: недельный баланс, не «дожать день до 1700» ---
-  var kcalGap = kGoal - t.kcal;
-  var weekKcalOk = avg && avg.days >= 3 && avg.kcal >= kGoal * 0.92;
+  // если неделя уже ~у цели, дневная «норма» мягче (~1500 при цели 1700)
+  var weekKcalOk = avg && avg.days >= 3 && avg.kcal >= kGoal * 0.90;
   var weekKcalLow = avg && avg.days >= 3 && avg.kcal < kGoal * 0.85;
+  var dayKcalTarget = weekKcalOk ? Math.min(kGoal, Math.max(1300, Math.round(kGoal * 0.88))) : kGoal;
+  var kcalGap = dayKcalTarget - t.kcal;
   var proteinOk = t.protein >= pGoal * 0.95;
   var fatWeekOk = !avg || avg.days < 3 || avg.fat >= fatFloor;
 
-  if(kcalGap > 200 && proteinOk && fatWeekOk && t.fiber >= fGoal * 0.7){
-    // классический кейс: «не хватает ккал, но Б/Ж/кл ок» → НЕ добирать углеводами ради цифры
+  if(t.kcal < dayKcalTarget - 200 && proteinOk && fatWeekOk && t.fiber >= fGoal * 0.7){
+    // «не хватает до 1700, но Б/Ж ок и неделя нормальная» → НЕ добирать углеводами
     if(weekKcalOk || !weekKcalLow){
-      reasonsSkip.push('ккал сегодня '+round(t.kcal)+' при ориентире '+kGoal+', но белок/жиры в порядке — добирать '+round(kcalGap)+' ккал углеводами не нужно (1700 — среднее за неделю, не минимум дня)');
+      reasonsSkip.push('сегодня '+round(t.kcal)+' ккал, неделя ~'+round(avg ? avg.kcal : 0)+' (ориентир '+kGoal+') — добирать бананом/углеводами до 1700 не нужно');
     } else {
-      reasonsNeed.push({ pri:4, text: 'Средние ккал за неделю низкие (~'+round(avg.kcal)+' при ориентире '+kGoal+'). Можно чуть добрать едой с белком/жирами, не сладкими углеводами.' });
+      reasonsNeed.push({ pri:4, text: 'Средние ккал за неделю низкие (~'+round(avg.kcal)+' при ориентире '+kGoal+'). Можно чуть добрать белком/жирами, не фруктом ради калорий.' });
     }
-  } else if(kcalGap > 350 && !proteinOk){
-    reasonsNeed.push({ pri:1, text: 'И ккал, и белок ниже плана — добери белковую еду (закроет оба пункта).' });
+  } else if(kcalGap > 250 && !proteinOk){
+    reasonsNeed.push({ pri:1, text: 'Белок не закрыт (−'+round(protMiss)+' г) — добери творог/рыбу/яйцо, не банан.' });
   } else if(t.kcal < 1200 && getDiary(date).length){
-    reasonsNeed.push({ pri:2, text: 'Очень низкая калорийность дня ('+round(t.kcal)+'). Регулярно так не стоит — лучше добавить белок/жиры.' });
+    reasonsNeed.push({ pri:2, text: 'Очень низкая калорийность дня ('+round(t.kcal)+'). Регулярно так не стоит — лучше белок/жиры.' });
   }
 
   reasonsNeed.sort(function(a,b){ return a.pri - b.pri; });
@@ -4585,10 +4587,11 @@ var AUTO_SLOTS = {
 var AUTO_SHARE = { breakfast:0.25, lunch:0.4, dinner:0.35, snack:0.15 };
 var AUTO_JUNK = /пельмен|блинчик|биточек|шницель|бургер|фри|шашлык|тортилья|сендвич|sandwich|плов|шарлотк|кафе|лодочка|цезарь|мороженое|торт|чипс/i;
 var AUTO_TEMPLATES = {
-  breakfast: [{role:'prot', p:1}, {role:'carb', p:0.6}, {role:'fruit', p:0.8}],
-  lunch:     [{role:'prot', p:1}, {role:'carb', p:0.9}, {role:'veg', p:1}, {role:'fat', p:0.3}],
-  dinner:    [{role:'prot', p:1}, {role:'carb', p:0.7}, {role:'veg', p:1}, {role:'fat', p:0.3}],
-  snack:     [{role:'prot', p:1}, {role:'fruit', p:0.5}]
+  // carb/fruit — только если ctx.allowCarbFill; перекус по умолчанию только белок
+  breakfast: [{role:'prot', p:1}, {role:'carb', p:0.55}, {role:'fruit', p:0.35}],
+  lunch:     [{role:'prot', p:1}, {role:'carb', p:0.75}, {role:'veg', p:1}, {role:'fat', p:0.35}],
+  dinner:    [{role:'prot', p:1}, {role:'carb', p:0.55}, {role:'veg', p:1}, {role:'fat', p:0.35}],
+  snack:     [{role:'prot', p:1}, {role:'fat', p:0.2}, {role:'fruit', p:0.08}]
 };
 
 function autoNameKey(p){ return (p.name || '').trim().toLowerCase(); }
@@ -4785,6 +4788,11 @@ function autoTrial(slots, pool, ctx){
   var items = [], used = {};
   slots.forEach(function(slot){
     AUTO_TEMPLATES[slot].forEach(function(t){
+      // Углеводы/фрукты «ради калорий» — только allowCarbFill
+      if((t.role === 'carb' || t.role === 'fruit') && !ctx.allowCarbFill) return;
+      // Перекус при доборе белка / нормальной неделе: без фрукта
+      if(t.role === 'fruit' && (slot === 'snack' || ctx.snackProteinOnly)) return;
+      if(t.role === 'fat' && slot === 'snack' && !ctx.needFat) return;
       if(Math.random() > t.p) return;
       var list = pool[t.role];
       if(!list || !list.length) return;
@@ -4817,26 +4825,57 @@ function autoVarPenalty(items, ctx){
   return pen;
 }
 function autoFillDay(date, existing, pool, ctx, opts){
-  var G = baseGoals(date);
+  var G = activeGoals(date);
   var fiberGoal = goals.fiberTarget || 28, vfGoal = goals.vegFruitTarget || 500;
+  var kGoal = goals.kcal || 1700;
   var ex = computeTotals(existing);
   var base = { kcal: ex.kcal, protein: ex.protein, fat: ex.fat, carbs: ex.carbs, fiber: ex.fiber, vf: ex.veg + ex.fruit };
   var present = {};
   existing.forEach(function(e){ present[e.meal || 'lunch'] = true; });
   var slots = AUTO_SLOTS[opts.meals].filter(function(s){ return !present[s]; });
   var protGap = G.protein - base.protein;
-  var kcalGap = G.kcal - base.kcal;
-  // добор: белок важнее ккал; не дожимаем день углеводами ради 1700
-  if(!slots.length){
-    if(!present.snack && (protGap > 12 || (kcalGap > 350 && protGap > 5))) slots = ['snack'];
+  var fatGap = (G.fat || 60) - base.fat;
+  var fiberGap = fiberGoal - base.fiber;
+
+  // недельный баланс ккал — 1700 это среднее, не минимум каждого дня
+  var weekAvg = weeklyMacroAverages(date, 7);
+  var weekKcalOk = weekAvg && weekAvg.days >= 3 && weekAvg.kcal >= kGoal * 0.90;
+  var weekKcalVeryLow = weekAvg && weekAvg.days >= 3 && weekAvg.kcal < kGoal * 0.82;
+  var weekFatLow = weekAvg && weekAvg.days >= 3 && weekAvg.fat < 40;
+
+  // Если неделя уже около 1700, «добивать» день до 1700 не нужно.
+  // Эффективная цель дня ≈ не выше того, что оставляет неделю у ориентира.
+  var dayKcalTarget = kGoal;
+  if(weekKcalOk){
+    dayKcalTarget = Math.min(kGoal, Math.max(1300, Math.round(kGoal * 0.88))); // ~1500 при цели 1700
   }
-  // белок закрыт и ккал не провал — не добавляем приёмы «ради калорий»
-  if(protGap < 10 && kcalGap < 400) slots = [];
-  if(kcalGap < 80 && protGap < 8) slots = [];
+  var kcalGap = dayKcalTarget - base.kcal;
+
+  // Углеводы/фрукты ТОЛЬКО при сильном недельном недоборе ккал и закрытом белке
+  ctx.needProt = protGap > 8;
+  ctx.needFiber = fiberGap > 10;
+  ctx.needFat = fatGap > 12 || weekFatLow;
+  ctx.allowCarbFill = !!(weekKcalVeryLow && protGap < 8 && !ctx.needFat);
+  // перекус: при недоборе белка — строго белок (и жир если нужен), без банана
+  ctx.snackProteinOnly = ctx.needProt || weekKcalOk;
+
+  // добор слотов: только реальные пробелы (белок/жир/сильный провал недели)
+  if(!slots.length){
+    if(!present.snack && (protGap > 12 || ctx.needFat || weekKcalVeryLow)) slots = ['snack'];
+  }
+  // неделя по ккал ок + белок почти ок → ничего не добираем «до 1700»
+  if(protGap < 10 && !ctx.needFat && fiberGap < 12 && weekKcalOk) slots = [];
+  if(protGap < 10 && !ctx.needFat && !weekKcalVeryLow && kcalGap < 250) slots = [];
+  if(protGap < 8 && !ctx.needFat && kcalGap < 100) slots = [];
+
   var result = { date: date, existingCount: existing.length, added: [], T: base, note: '' };
   if(!slots.length){
     result.note = existing.length
-      ? (protGap < 10 ? 'Белок в порядке — добор только ради ккал не нужен' : 'Приёмы заполнены')
+      ? (weekKcalOk && protGap < 10
+          ? 'Неделя по ккал около цели (~'+round(weekAvg.kcal)+'), белок почти закрыт — банан/углеводы не добавляем'
+          : (protGap < 10
+              ? 'Белок в порядке — добор только ради ккал дня не нужен'
+              : 'Приёмы заполнены'))
       : 'Нечего добавлять';
     return result;
   }
@@ -4844,8 +4883,28 @@ function autoFillDay(date, existing, pool, ctx, opts){
   for(var t=0; t<ctx.trials; t++){
     var items = autoTrial(slots, pool, ctx);
     if(!items.length) continue;
+    // жёстко: без углеводов/фруктов, если не разрешён carb-fill
+    if(!ctx.allowCarbFill){
+      items = items.filter(function(it){ return it.role !== 'carb' && it.role !== 'fruit'; });
+    }
+    // добор белка: оставляем prot (+ fat если нужен, + veg если клетчатка)
+    if(ctx.snackProteinOnly || ctx.needProt){
+      items = items.filter(function(it){
+        if(it.role === 'prot') return true;
+        if(it.role === 'fat' && ctx.needFat) return true;
+        if(it.role === 'veg' && ctx.needFiber) return true;
+        return false;
+      });
+    }
+    if(!items.length) continue;
     var cost = autoOptimize(items, base, G, fiberGoal, vfGoal);
     var total = cost + autoVarPenalty(items, ctx);
+    // сильный штраф за любой carb/fruit при доборе белка
+    if(!ctx.allowCarbFill){
+      items.forEach(function(it){
+        if(it.role === 'carb' || it.role === 'fruit') total += 8;
+      });
+    }
     if(!best || total < best.total){ best = { items: items, total: total }; }
     if(best.total < 0.02) break;
   }

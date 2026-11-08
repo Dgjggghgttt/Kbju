@@ -194,7 +194,7 @@
     <button data-tab="diary" class="active"><span class="ic">🧾</span>Дневник</button>
     <button data-tab="plan"><span class="ic">🗓️</span>План</button>
     <button data-tab="products"><span class="ic">🥫</span>Продукты</button>
-    <button data-tab="weight"><span class="ic">⚖️</span>Вес</button>
+    <button data-tab="fridge"><span class="ic">🧊</span>Холод.</button>
     <button data-tab="report"><span class="ic">📊</span>Отчёт</button>
   </nav>
 </div>
@@ -473,12 +473,10 @@ function buildTomorrowPlanCard(){
 }
 
 function buildTemplateCard(){
-  var has = dayTemplate && dayTemplate.entries && dayTemplate.entries.length;
   var hasProd = getDiary(currentDate).some(function(e){ return !e.custom && e.productId && e.grams>0; });
-  return '<div class="card" style="margin-bottom:10px;padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;">'+
-    '<button class="btn ghost" id="saveTplBtn" style="flex:1;padding:8px;font-size:12px;">Сохранить день как шаблон</button>'+
-    '<button class="btn '+(has?'primary':'ghost')+'" id="loadTplBtn" style="flex:1;padding:8px;font-size:12px;" '+(has?'':'disabled')+'>Вставить шаблон</button>'+
-    '<button class="btn '+(hasProd?'primary':'ghost')+'" id="recipeFromDayBtn" style="flex:1 1 100%;padding:8px;font-size:12px;" '+(hasProd?'':'disabled')+'>🍳 Рецепт из продуктов дня</button>'+
+  if(!hasProd) return '';
+  return '<div class="card" style="margin-bottom:10px;padding:10px 12px;">'+
+    '<button class="btn primary" id="recipeFromDayBtn" style="width:100%;padding:10px;font-size:13px;">🍳 Рецепт из продуктов дня</button>'+
   '</div>';
 }
 
@@ -1242,7 +1240,7 @@ function render(){
   if(activeTab==='diary'){ renderDiaryTab(content, fab); }
   else if(activeTab==='plan'){ renderPlanTab(content, fab); }
   else if(activeTab==='products'){ renderProductsTab(content, fab); }
-  else if(activeTab==='weight'){ renderWeightTab(content, fab); }
+  else if(activeTab==='fridge'){ renderFridgeTab(content, fab); }
   else if(activeTab==='report'){ renderReportTab(content, fab); }
 }
 
@@ -1519,11 +1517,6 @@ function renderDiaryTab(content, fab){
   }
   var bikeBtn = document.getElementById('bikeBtn');
   if(bikeBtn) bikeBtn.onclick = openBikeForm;
-  var saveTpl = document.getElementById('saveTplBtn');
-  if(saveTpl) saveTpl.onclick = saveDayAsTemplate;
-  var loadTpl = document.getElementById('loadTplBtn');
-  if(loadTpl) loadTpl.onclick = loadDayTemplate;
-
   content.querySelectorAll('[data-del]').forEach(function(b){
     b.onclick = function(ev){
       ev.stopPropagation();
@@ -2145,7 +2138,107 @@ function weeklyWeightPace(offset){
   };
 }
 
-function renderWeightTab(content, fab){
+function renderFridgeTab(content, fab){
+  var groups = [
+    { key:'protein', title:'Мясо / рыба / яйца', match: function(p){ return (p.foodGroup==='protein') || /яйц|рыб|тунц|куриц|индей|говяд|свинин|мясо|ветчин|сосиск|карпач/i.test(p.name||''); } },
+    { key:'dairy', title:'Молочка', match: function(p){ return p.foodGroup==='dairy' || /творог|йогурт|молоко|сыр|кефир|скир|протеин|пудинг/i.test(p.name||''); } },
+    { key:'grain', title:'Крупы / корнеплоды', match: function(p){ return p.foodGroup==='grain' || /гречк|рис|овсян|хлеб|картоф|чечевиц|макарон|лаваш/i.test(p.name||''); } },
+    { key:'veg', title:'Овощи', match: function(p){ return p.foodGroup==='veg'; } },
+    { key:'fruit', title:'Фрукты', match: function(p){ return p.foodGroup==='fruit'; } },
+    { key:'other', title:'Иное', match: function(p){ return true; } }
+  ];
+  var inFridge = products.filter(function(p){ return invGet(p.id) > 0; });
+  var used = {};
+  var html = '<div class="section-title">Холодильник</div>'+
+    '<div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;line-height:1.4;">Что есть дома. При записи в дневник запас списывается. Можно править вручную — едят и другие.</div>';
+  if(!inFridge.length){
+    html += '<div class="card"><div class="empty" style="padding:16px;">Пусто. Добавь запас в карточке продукта<br>или кнопкой ниже.</div></div>';
+  }
+  groups.forEach(function(g){
+    var list;
+    if(g.key==='other'){
+      list = inFridge.filter(function(p){ return !used[p.id]; });
+    } else {
+      list = inFridge.filter(function(p){
+        if(used[p.id]) return false;
+        if(g.match(p)){ used[p.id]=true; return true; }
+        return false;
+      });
+    }
+    if(!list.length) return;
+    html += '<div class="section-title">'+g.title+'</div><div class="card">';
+    list.forEach(function(p){
+      var gms = invGet(p.id);
+      var note = (inventory[p.id] && inventory[p.id].note) ? inventory[p.id].note : '';
+      html += '<div class="entry" data-fr-edit="'+p.id+'" style="cursor:pointer;">'+
+        '<div class="name">'+p.name+
+          (note?'<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+note+'</div>':'')+
+        '</div>'+
+        '<div class="kcal">'+gms+' г</div></div>';
+    });
+    html += '</div>';
+  });
+  content.innerHTML = html;
+  fab.innerHTML = '<button id="fridgeAddBtn">+ В холодильник</button>';
+  document.getElementById('fridgeAddBtn').onclick = function(){ openFridgeAdd(); };
+  content.querySelectorAll('[data-fr-edit]').forEach(function(row){
+    row.onclick = function(){
+      var p = products.find(function(x){ return x.id===row.getAttribute('data-fr-edit'); });
+      if(p) openFridgeEdit(p);
+    };
+  });
+}
+function openFridgeAdd(){
+  var root = document.getElementById('modalRoot');
+  var opts = products.slice().sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); }).map(function(p){
+    return '<option value="'+p.id+'">'+p.name+(invGet(p.id)?' (есть '+invGet(p.id)+'г)':'')+'</option>';
+  }).join('');
+  root.innerHTML = '<div class="overlay" id="ov"><div class="sheet">'+
+    '<h2>В холодильник</h2>'+
+    '<div class="field"><label>Продукт</label><select id="frProd" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--card);font-size:15px;"><option value="">—</option>'+opts+'</select></div>'+
+    '<div class="field"><label>Сколько грамм</label><input id="frG" type="number" inputmode="decimal" placeholder="400"></div>'+
+    '<div class="field"><label>Заметка</label><input id="frNote" type="text" placeholder="общее / моё"></div>'+
+    '<div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>'+
+    '</div></div>';
+  document.getElementById('cancelBtn').onclick = closeModal;
+  document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
+  document.getElementById('saveBtn').onclick = function(){
+    var id = document.getElementById('frProd').value;
+    var g = parseFloat(document.getElementById('frG').value);
+    var note = (document.getElementById('frNote').value||'').trim();
+    if(!id || !(g>0)){ showToast('Выбери продукт и граммы'); return; }
+    invSet(id, g, note);
+    closeModal();
+    showToast('В холодильнике');
+    render();
+  };
+}
+function openFridgeEdit(p){
+  var root = document.getElementById('modalRoot');
+  var g0 = invGet(p.id);
+  var n0 = (inventory[p.id] && inventory[p.id].note) || '';
+  root.innerHTML = '<div class="overlay" id="ov"><div class="sheet">'+
+    '<h2>'+p.name+'</h2>'+
+    '<div class="field"><label>Грамм в холодильнике</label><input id="frG" type="number" inputmode="decimal" value="'+g0+'"></div>'+
+    '<div class="field"><label>Заметка</label><input id="frNote" type="text" value="'+n0.replace(/"/g,'&quot;')+'" placeholder="общее / моё"></div>'+
+    '<div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>'+
+    '<button class="btn danger" id="frClear" style="width:100%;margin-top:10px;">Убрать из холодильника</button>'+
+    '</div></div>';
+  document.getElementById('cancelBtn').onclick = closeModal;
+  document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
+  document.getElementById('saveBtn').onclick = function(){
+    var g = parseFloat(document.getElementById('frG').value);
+    var note = (document.getElementById('frNote').value||'').trim();
+    invSet(p.id, isNaN(g)?0:g, note);
+    closeModal(); render();
+  };
+  document.getElementById('frClear').onclick = function(){
+    invSet(p.id, 0);
+    closeModal(); render();
+  };
+}
+
+function renderWeightTab(content, fab, append){
   const sorted = [...weightLog].sort(function(a,b){ return a.date.localeCompare(b.date); });
   // период для графика: выбранный periodFrom–periodTo или последние ~90 дней
   var chartFrom = periodFrom || null;
@@ -2306,19 +2399,7 @@ function renderWeightTab(content, fab){
       ${lineFact('За всё время', proj.all, proj.avgAll)}
       <button class="btn ghost" id="setGoalWeightBtn" style="width:100%;margin-top:12px;">Изменить цель</button>
     </div>
-    <div class="section-title">Вес к выбранной дате</div>
-    <div class="card">
-      <div class="field"><label>Дата</label><input type="date" id="projDateInput" value=""></div>
-      <button class="btn primary" id="projDateBtn" style="width:100%;">Посчитать вес</button>
-      <div id="projDateResult" style="margin-top:10px;font-size:13px;line-height:1.5;"></div>
-    </div>
-    <div class="section-title">Калории, чтобы прийти к цели</div>
-    <div class="card">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.4;">Укажи дату, к которой хочешь выйти на ${proj.target} кг — покажем нужную среднюю норму ккал.</div>
-      <div class="field"><label>К какой дате</label><input type="date" id="kcalByDateInput" value=""></div>
-      <button class="btn primary" id="kcalByDateBtn" style="width:100%;">Посчитать норму</button>
-      <div id="kcalByDateResult" style="margin-top:10px;font-size:13px;line-height:1.5;"></div>
-    </div>`;
+    `;
   }
 
   // build list with prev for jump detection (sorted ascending for prev lookup)
@@ -2331,8 +2412,8 @@ function renderWeightTab(content, fab){
   var defaultTo = (sorted.length && sorted[sorted.length-1].date) || (allDiaryDates.length ? allDiaryDates[allDiaryDates.length-1] : todayStr());
   if(periodFrom && periodTo){ defaultFrom = periodFrom; defaultTo = periodTo; }
 
-  content.innerHTML = `
-    <div class="section-title">Прогноз цели</div>
+  var _whtml = `
+    <div class="section-title">Вес и прогноз</div>
     ${projHtml}
     <div class="section-title">Период: калории и вес</div>
     <div class="card" id="periodCard">
@@ -2385,6 +2466,8 @@ function renderWeightTab(content, fab){
         </div>`;
       }).join('');
     })()}</div>`;
+  if(append) content.innerHTML += _whtml;
+  else content.innerHTML = _whtml;
 
   content.querySelectorAll('[data-wdel]').forEach(function(b){
     b.onclick = function(ev){
@@ -2704,6 +2787,12 @@ function renderReportTab(content, fab){
   var avgKcal = avg('netKcal'), avgP = avg('protein'), avgF = avg('fat'), avgC = avg('carbs');
   var avgBike = avg('bike');
   var gKcal = avgGoal('goalKcal'), gP = avgGoal('goalP'), gF = avgGoal('goalF'), gC = avgGoal('goalC');
+  var sortedWrep = weightLog.slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
+  var pairRep = getWeekPair(sortedWrep, 0);
+  var avgWthis = pairRep.newer.avg;
+  var avgWprev = pairRep.older.avg;
+  var wWeekDelta = (avgWthis != null && avgWprev != null) ? round(avgWthis - avgWprev) : null;
+
   function overStyle(val, goal){
     return (val > goal) ? 'color:var(--red);font-weight:700;' : '';
   }
@@ -2718,6 +2807,7 @@ function renderReportTab(content, fab){
     <div class="section-title">Среднее за 7 дней</div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Включая сегодня · нетто = еда − вело${avgBike?(' · вело ~'+avgBike+' ккал/д'):''}</div>
     <div class="stat-grid">
+      <div class="stat"><div class="slab">Ср. вес (эта нед.)</div><div class="sval">${avgWthis!=null?round(avgWthis):'—'} кг${wWeekDelta!=null?'<div style="font-size:11px;font-weight:400;color:'+(wWeekDelta>0.05?'var(--red)':(wWeekDelta<-0.05?'var(--green)':'var(--muted)'))+';margin-top:2px;">к пред. '+(wWeekDelta>0?'+':'')+wWeekDelta+' кг</div>':(avgWprev!=null?'<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:2px;">пред. '+round(avgWprev)+' кг</div>':'')}</div></div>
       <div class="stat"><div class="slab">Средние нетто ккал</div><div class="sval" style="${overStyle(avgKcal, gKcal)}">${avgKcal}<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:2px;">цель ~${gKcal}</div></div></div>
       <div class="stat"><div class="slab">Средний белок</div><div class="sval" style="${overStyle(avgP, gP)}">${avgP} г<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:2px;">цель ~${gP}</div></div></div>
       <div class="stat"><div class="slab">Средний жир</div><div class="sval" style="${overStyle(avgF, gF)}">${avgF} г<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:2px;">цель ~${gF}</div></div></div>
@@ -2830,6 +2920,8 @@ function renderReportTab(content, fab){
   document.getElementById('exportBtn').onclick = exportData;
   document.getElementById('importBtn').onclick = ()=>document.getElementById('importFile').click();
   document.getElementById('importFile').onchange = importData;
+
+  renderWeightTab(content, fab, true);
 }
 
 function buildDietSummaryForAI(){
@@ -4321,13 +4413,25 @@ function autoBuildPool(counts){
     if(!role) return;
     var c = counts[p.id] || 0;
     var w = staple ? 1.2 : (0.6 + Math.min(c, 8) * 0.5 + (favorites.indexOf(p.id) >= 0 ? 3 : 0));
-    // бонус, если продукт уже в холодильнике
     if(invGet(p.id) > 0) w += 2.5;
     pool[role].push({ key: autoNameKey(p), p: p, staple: !!staple, w: w, kind: role === 'prot' ? autoKind(p) : null });
   }
   var names = {};
   products.forEach(function(p){ names[autoNameKey(p)] = true; add(p, false); });
   STAPLES.forEach(function(s){ if(!names[autoNameKey(s)]) add(s, true); });
+  return pool;
+}
+function autoBuildPoolFridge(counts){
+  var pool = { prot:[], carb:[], veg:[], fruit:[], fat:[] };
+  products.forEach(function(p){
+    if(p.excludeFromPlan) return;
+    if(invGet(p.id) <= 0) return;
+    var role = autoRoleOf(p);
+    if(!role) return;
+    var c = counts[p.id] || 0;
+    var w = 1 + Math.min(c, 8) * 0.3 + Math.min(invGet(p.id)/100, 5);
+    pool[role].push({ key: autoNameKey(p), p: p, staple: false, w: w, kind: role === 'prot' ? autoKind(p) : null });
+  });
   return pool;
 }
 function autoProtWeight(kind, slot){
@@ -4522,7 +4626,8 @@ function autoFillDay(date, existing, pool, ctx, opts){
   return result;
 }
 function autoGenerate(scope, date, opts){
-  var pool = autoBuildPool(productUsageCounts());
+  var counts = productUsageCounts();
+  var pool = (opts.style === 'fridge') ? autoBuildPoolFridge(counts) : autoBuildPool(counts);
   var weekDates = planWeekDates(planWeekStart);
   var today = todayStr();
   var dates = scope === 'day' ? [date] : weekDates.filter(function(d){ return opts.range === 'all' || d >= today; });
@@ -4615,8 +4720,7 @@ function openAutoPlan(scope, date){
         (scope === 'week' && hasToday
           ? '<div class="field"><label>Дни</label>'+chips('range', [['rest','С сегодня'],['all','Вся неделя']])+'</div>' : '')+
         '<div class="field"><label>Приёмов пищи</label>'+chips('meals', [[2,'2'],[3,'3'],[4,'4']])+'</div>'+
-        (scope === 'week'
-          ? '<div class="field"><label>Стиль</label>'+chips('style', [['repeat','Минимум готовки'],['variety','Разнообразнее']])+'</div>' : '')+
+        '<div class="field"><label>Стиль</label>'+chips('style', [['repeat','Минимум готовки'],['variety','Разнообразнее'],['fridge','Чистим холодильник']])+'</div>'+
         '<div class="field"><label>Уже запланированное</label>'+chips('replace', [['false','Оставить, добрать'],['true','Заменить']])+'</div>'+
         body+
         '<div class="sheet-actions">'+

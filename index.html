@@ -379,47 +379,143 @@ function activeGoals(date){
   return adjusted;
 }
 
+/** Средние макросы за последние n дней с едой (включая date) */
+function weeklyMacroAverages(endDate, n){
+  n = n || 7;
+  endDate = endDate || todayStr();
+  var sum = { kcal:0, protein:0, fat:0, carbs:0, fiber:0 }, days = 0;
+  for(var i=0;i<n;i++){
+    var d = shiftDate(endDate, -i);
+    var e = getDiary(d);
+    if(!e.length) continue;
+    var t = computeTotals(e);
+    sum.kcal += t.kcal; sum.protein += t.protein; sum.fat += t.fat;
+    sum.carbs += t.carbs; sum.fiber += t.fiber;
+    days++;
+  }
+  if(!days) return null;
+  return {
+    days: days,
+    kcal: sum.kcal/days, protein: sum.protein/days, fat: sum.fat/days,
+    carbs: sum.carbs/days, fiber: sum.fiber/days
+  };
+}
+
+/**
+ * Логика добора:
+ * 1) Белок 150/день, ≥30 г/приём — главный приоритет
+ * 2) Ккал 1700 — ориентир СРЕДНЕГО за неделю, не жёсткий минимум дня
+ * 3) Жиры — контроль среднего за неделю; <40 г/день в среднем → добирать
+ * 4) Клетчатка 25–30 г/день
+ * 5) Углеводы — не цель добора; только если нужно закрыть ккал после Б и Ж
+ */
+function topUpDecision(date){
+  date = date || currentDate;
+  var g = activeGoals(date);
+  var t = computeTotals(getDiary(date));
+  var avg = weeklyMacroAverages(date, 7);
+  var pGoal = g.protein || 150;
+  var kGoal = goals.kcal || 1700;
+  var fGoal = goals.fiberTarget || 28;
+  var fatFloor = 40;
+  var reasonsNeed = [];
+  var reasonsSkip = [];
+
+  // --- белок ---
+  var protMiss = pGoal - t.protein;
+  if(protMiss > 8){
+    reasonsNeed.push({ pri:1, text: 'Белок −'+round(protMiss)+' г до '+round(pGoal)+' (главный приоритет, лучше ≥30 г в приём).' });
+  } else if(protMiss > 0){
+    reasonsNeed.push({ pri:1, text: 'Белок почти закрыт (−'+round(protMiss)+' г) — небольшой добор белка ок.' });
+  } else {
+    reasonsSkip.push('белок закрыт ('+round(t.protein)+' / '+round(pGoal)+' г)');
+  }
+
+  // --- клетчатка ---
+  if(t.fiber < fGoal * 0.7){
+    reasonsNeed.push({ pri:3, text: 'Клетчатка '+round(t.fiber)+' / '+fGoal+' г — добери овощами / овсянкой / фруктом.' });
+  }
+
+  // --- жиры (неделя) ---
+  if(avg && avg.days >= 3 && avg.fat < fatFloor){
+    reasonsNeed.push({ pri:2, text: 'Средние жиры за '+avg.days+' дн. ~'+round(avg.fat)+' г (< '+fatFloor+') — добери жиры (яйцо, сыр, орехи, масло).' });
+  } else if(t.fat < 25 && (!avg || avg.fat < 50)){
+    reasonsNeed.push({ pri:2, text: 'Жиров сегодня мало ('+round(t.fat)+' г) — не обязательно, но полезно чуть добавить.' });
+  }
+
+  // --- калории: недельный баланс, не «дожать день до 1700» ---
+  var kcalGap = kGoal - t.kcal;
+  var weekKcalOk = avg && avg.days >= 3 && avg.kcal >= kGoal * 0.92;
+  var weekKcalLow = avg && avg.days >= 3 && avg.kcal < kGoal * 0.85;
+  var proteinOk = t.protein >= pGoal * 0.95;
+  var fatWeekOk = !avg || avg.days < 3 || avg.fat >= fatFloor;
+
+  if(kcalGap > 200 && proteinOk && fatWeekOk && t.fiber >= fGoal * 0.7){
+    // классический кейс: «не хватает ккал, но Б/Ж/кл ок» → НЕ добирать углеводами ради цифры
+    if(weekKcalOk || !weekKcalLow){
+      reasonsSkip.push('ккал сегодня '+round(t.kcal)+' при ориентире '+kGoal+', но белок/жиры в порядке — добирать '+round(kcalGap)+' ккал углеводами не нужно (1700 — среднее за неделю, не минимум дня)');
+    } else {
+      reasonsNeed.push({ pri:4, text: 'Средние ккал за неделю низкие (~'+round(avg.kcal)+' при ориентире '+kGoal+'). Можно чуть добрать едой с белком/жирами, не сладкими углеводами.' });
+    }
+  } else if(kcalGap > 350 && !proteinOk){
+    reasonsNeed.push({ pri:1, text: 'И ккал, и белок ниже плана — добери белковую еду (закроет оба пункта).' });
+  } else if(t.kcal < 1200 && getDiary(date).length){
+    reasonsNeed.push({ pri:2, text: 'Очень низкая калорийность дня ('+round(t.kcal)+'). Регулярно так не стоит — лучше добавить белок/жиры.' });
+  }
+
+  reasonsNeed.sort(function(a,b){ return a.pri - b.pri; });
+  var need = reasonsNeed.length > 0 && !(proteinOk && fatWeekOk && t.fiber >= fGoal * 0.7 && kcalGap > 200 && !weekKcalLow);
+
+  // Переопределение need: если единственный «пробел» — ккал при закрытом Б и норм жирах — need = false
+  if(proteinOk && fatWeekOk && t.fiber >= fGoal * 0.65 && kcalGap > 0 && reasonsNeed.every(function(r){ return r.pri >= 4; })){
+    need = false;
+  }
+  if(protMiss > 8 || (avg && avg.days >= 3 && avg.fat < fatFloor) || t.fiber < fGoal * 0.7){
+    need = reasonsNeed.length > 0;
+  }
+
+  return {
+    need: need,
+    totals: t,
+    avg: avg,
+    reasonsNeed: reasonsNeed,
+    reasonsSkip: reasonsSkip,
+    kcalGap: kcalGap,
+    protMiss: protMiss
+  };
+}
+
 function dayAdvice(date){
   date = date || currentDate;
-  if(date !== todayStr()) return []; // советы только на сегодня, макс. 2
-  var ranked = [];
+  if(date !== todayStr()) return [];
+  var out = [];
+  var d = topUpDecision(date);
 
-  // приоритет 1: слишком быстрый сброс веса
+  // быстрый сброс веса — поверх логики добора
   var paceTip = weeklyWeightPace(0);
   if(paceTip && paceTip.delta < -paceTip.safeMax){
-    ranked.push({
-      pri: 1, type:'warn',
-      text: 'Вес падает слишком быстро ('+round(paceTip.delta)+' кг/нед, безопаснее до −'+paceTip.safeMax+'). Ешь ближе к '+goals.kcal+' ккал, не урезай сильнее.'
+    out.push({
+      type:'warn',
+      text: 'Вес падает слишком быстро ('+round(paceTip.delta)+' кг/нед). Не урезай еду сильнее — держись ближе к '+ (goals.kcal||1700)+' ккал в среднем за неделю.'
     });
   }
 
-  // приоритет 2: белок вчера
-  var yest = shiftDate(date, -1);
-  if(getDiary(yest).length){
-    var yTot = computeTotals(getDiary(yest));
-    var yProtTarget = proteinGoalFor(yest);
-    var protMiss = yProtTarget - yTot.protein;
-    if(protMiss > 5){
-      ranked.push({ pri: 2, type:'info', text: 'Вчера белка −'+round(protMiss)+' г. Сегодня норма чуть выше — закрой белок в основных приёмах.' });
+  if(d.need && d.reasonsNeed.length){
+    out.push({ type: d.reasonsNeed[0].pri <= 2 ? 'warn' : 'info', text: 'Добор нужен: '+d.reasonsNeed[0].text });
+    if(d.reasonsNeed[1]) out.push({ type:'info', text: d.reasonsNeed[1].text });
+  } else {
+    var skip = d.reasonsSkip.length ? d.reasonsSkip.join('; ') : 'приоритеты (белок, жиры за неделю, клетчатка) в порядке';
+    out.push({
+      type:'info',
+      text: 'Добор сегодня не обязателен: '+skip+'. 1700 ккал — ориентир среднего за неделю, не обязанность каждого дня.'
+    });
+    if(d.protMiss > 0 && d.protMiss <= 8){
+      out.push({ type:'info', text: 'При желании можно чуть добрать белок (−'+round(d.protMiss)+' г), без углеводов «ради калорий».' });
     }
   }
 
-  // приоритет 3: план на завтра по овощам/клетчатке (недельный пробел)
-  planAheadTips().forEach(function(t){ ranked.push({ pri: 3, type: t.type, text: t.text }); });
-
-  // приоритет 4: разнообразие
-  diversityTips(dietDiversity(7)).forEach(function(t){ ranked.push({ pri: 4, type: t.type, text: t.text }); });
-
-  ranked.sort(function(a,b){ return a.pri - b.pri; });
-  var out = [];
-  var seen = {};
-  for(var i=0;i<ranked.length && out.length<2;i++){
-    var key = ranked[i].text.slice(0,40);
-    if(seen[key]) continue;
-    seen[key] = true;
-    out.push({ type: ranked[i].type, text: ranked[i].text });
-  }
-  return out;
+  // максимум 2
+  return out.slice(0, 2);
 }
 
 /** План на завтра / ближайшие дни по средним пробелам */
@@ -449,17 +545,18 @@ function planAheadTips(){
 
 function buildTomorrowPlanLines(){
   var div = dietDiversity(7);
+  var avg = weeklyMacroAverages(todayStr(), 7);
   var lines = [];
-  lines.push('Белок ~'+round((goals.protein||150)/4)+' г × 3–4 приёма (цель '+ (goals.protein||150)+' г)');
-  lines.push('Калории ~'+(goals.kcal||1700));
+  lines.push('Белок '+(goals.protein||150)+' г (≥30 г в приём) — главный приоритет');
+  lines.push('Ккал ~'+(goals.kcal||1700)+' в среднем за неделю, не обязанность каждого дня');
+  if(avg && avg.fat < 45){
+    lines.push('Жиры: сейчас ср. ~'+round(avg.fat)+' г — держи выше 40 г в среднем');
+  } else {
+    lines.push('Жиры: контроль среднего за неделю (не ниже ~40 г)');
+  }
+  lines.push('Клетчатка '+(goals.fiberTarget||28)+' г · углеводы — только если нужно после белка и жиров');
   if(!div || div.daysWithFood < 2 || div.avgVeg < 250){
-    lines.push('Овощи 300–400 г (огурец, капуста, брокколи)');
-  }
-  if(!div || div.daysWithFood < 2 || div.avgFruit < 120){
-    lines.push('Фрукт 1–2 шт (яблоко / мандарин)');
-  }
-  if(!div || div.daysWithFood < 2 || div.avgFiber < 18){
-    lines.push('Крупа: овсянка или гречка');
+    lines.push('Овощи 300–400 г');
   }
   return lines;
 }
@@ -4549,13 +4646,17 @@ function autoCost(items, base, G, fiberGoal, vfGoal){
   }
   var cost = 0, e;
   e = (T.k - G.kcal) / G.kcal;
-  if(e > 0) cost += 9 * e; else if(e < -0.03) cost += 2 * (-e - 0.03);
+  // ккал: перебор наказывать сильно; недобор слабее — 1700 это среднее за неделю, не минимум дня
+  if(e > 0) cost += 9 * e;
+  else if(e < -0.15) cost += 0.8 * (-e - 0.15); // только сильный недобор
   e = (T.p - G.protein) / G.protein;
-  if(e < -0.02) cost += 7 * (-e - 0.02); else if(e > 0.10) cost += 1.2 * (e - 0.10);
+  if(e < -0.02) cost += 8 * (-e - 0.02); else if(e > 0.10) cost += 1.2 * (e - 0.10);
   e = (T.f - G.fat) / G.fat;
-  if(e > 0) cost += 5 * e; else if(e < -0.35) cost += 0.6 * (-e - 0.35);
+  if(e > 0) cost += 5 * e; else if(e < -0.35) cost += 1.2 * (-e - 0.35); // жиры важнее «дожать ккал»
   e = (T.c - G.carbs) / G.carbs;
-  if(e > 0) cost += 5 * e; else if(e < -0.30) cost += 0.8 * (-e - 0.30);
+  if(e > 0) cost += 5 * e;
+  // недобор углеводов почти не наказываем — У не цель добора
+  else if(e < -0.50) cost += 0.3 * (-e - 0.50);
   if(T.fi < fiberGoal) cost += 6 * (fiberGoal - T.fi) / fiberGoal;
   if(T.vf < vfGoal) cost += 3 * (vfGoal - T.vf) / vfGoal;
   // равномерность по приёмам и белок в основных приёмах
@@ -4636,14 +4737,20 @@ function autoFillDay(date, existing, pool, ctx, opts){
   var present = {};
   existing.forEach(function(e){ present[e.meal || 'lunch'] = true; });
   var slots = AUTO_SLOTS[opts.meals].filter(function(s){ return !present[s]; });
-  var note = '';
+  var protGap = G.protein - base.protein;
+  var kcalGap = G.kcal - base.kcal;
+  // добор: белок важнее ккал; не дожимаем день углеводами ради 1700
   if(!slots.length){
-    if(!present.snack && (G.kcal - base.kcal > 120 || G.protein - base.protein > 10)) slots = ['snack'];
+    if(!present.snack && (protGap > 12 || (kcalGap > 350 && protGap > 5))) slots = ['snack'];
   }
-  if(G.kcal - base.kcal < 120) slots = [];
+  // белок закрыт и ккал не провал — не добавляем приёмы «ради калорий»
+  if(protGap < 10 && kcalGap < 400) slots = [];
+  if(kcalGap < 80 && protGap < 8) slots = [];
   var result = { date: date, existingCount: existing.length, added: [], T: base, note: '' };
   if(!slots.length){
-    result.note = existing.length ? 'Приёмы заполнены или ккал уже в норме' : 'Нечего добавлять';
+    result.note = existing.length
+      ? (protGap < 10 ? 'Белок в порядке — добор только ради ккал не нужен' : 'Приёмы заполнены')
+      : 'Нечего добавлять';
     return result;
   }
   var best = null;

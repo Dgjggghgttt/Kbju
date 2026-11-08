@@ -266,6 +266,7 @@ var currentDate = todayStr();
 var activeTab = 'diary';
 var mealPlan = {}; // date -> [{id, productId, grams, meal}]
 var shopChecked = {}; // monday -> {productId: true}
+var inventory = {}; // productId -> { grams, note }
 var planWeekStart = weekMonday(todayStr());
 var planOpenDay = null;
 // Пользовательская норма: 4 км = 100 ккал
@@ -520,12 +521,33 @@ function loadDayTemplate(){
 function shoppingListFromGaps(){
   var div = dietDiversity(7);
   var items = [];
-  if(!div || div.avgVeg < 250) items.push('Огурцы, помидоры, капуста / брокколи');
-  if(!div || div.avgFruit < 120) items.push('Яблоки, мандарины или ягоды');
-  if(!div || div.avgFiber < 18) items.push('Овсянка или гречка');
-  if(!div || (div.groups && div.groups.protein < 5)) items.push('Курица / индейка / яйца / творог');
-  if(!items.length) items.push('Рацион сбалансирован — докупи то, что обычно ешь');
-  return items;
+  // что уже есть в холодильнике — не дублируем
+  var haveNames = {};
+  products.forEach(function(p){
+    if(invGet(p.id) > 0) haveNames[(p.name||'').toLowerCase()] = true;
+  });
+  function need(label, test){
+    if(test && !Object.keys(haveNames).some(function(n){ return test.test(n); })) items.push(label);
+  }
+  if(!div || div.avgVeg < 250) need('Огурцы, помидоры, капуста / брокколи', /огур|помид|капуст|броккол/);
+  if(!div || div.avgFruit < 120) need('Яблоки, мандарины или ягоды', /яблок|мандар|ягод/);
+  if(!div || div.avgFiber < 18) need('Овсянка или гречка', /овсян|гречк/);
+  if(!div || (div.groups && div.groups.protein < 5)) need('Курица / индейка / яйца / творог', /куриц|индей|яйц|творог/);
+  // пустые запасы часто используемых
+  products.forEach(function(p){
+    if(p.excludeFromPlan) return;
+    var usage = (productUsageCounts()[p.id] || 0);
+    if(usage >= 3 && invGet(p.id) <= 0){
+      var pack = packageStep(p) || p.portionGrams || 0;
+      var price = p.price != null ? (' ~'+p.price+'₽') : '';
+      var packTxt = pack ? (' ×'+pack+' г') : '';
+      items.push((p.name||'?')+packTxt+price+' (часто ешь, нет в холодильнике)');
+    }
+  });
+  if(!items.length) items.push('Рацион ок, холодильник не пустой — докупи по привычке');
+  // unique
+  var seen = {};
+  return items.filter(function(x){ if(seen[x]) return false; seen[x]=true; return true; }).slice(0, 12);
 }
 
 function remainingMacros(date){
@@ -888,6 +910,21 @@ function ensureProductMeta(p){
   return p;
 }
 
+/** Снимок КБЖУ на момент записи — дневник не зависит от будущих правок базы */
+function snapshotFromProduct(p, grams){
+  ensureProductMeta(p);
+  var f = (grams || 0) / 100;
+  var grp = p.foodGroup || 'other';
+  return {
+    name: p.name,
+    kcal: (p.kcal||0)*f,
+    protein: (p.protein||0)*f,
+    fat: (p.fat||0)*f,
+    carbs: (p.carbs||0)*f,
+    fiber: (p.fiber||0)*f,
+    foodGroup: grp
+  };
+}
 function entryMacros(e){
   if(e.custom){
     var cg = e.foodGroup || 'other';
@@ -905,8 +942,25 @@ function entryMacros(e){
       foodGroup: cg
     };
   }
+  // есть снимок — всегда используем его (и после удаления продукта из базы)
+  if(e.snap && e.snap.name){
+    var gms2 = e.grams || 0;
+    var grp2 = e.snap.foodGroup || 'other';
+    return {
+      name: e.snap.name,
+      grams: e.grams,
+      kcal: e.snap.kcal||0,
+      protein: e.snap.protein||0,
+      fat: e.snap.fat||0,
+      carbs: e.snap.carbs||0,
+      fiber: e.snap.fiber||0,
+      vegGrams: grp2 === 'veg' ? gms2 : 0,
+      fruitGrams: grp2 === 'fruit' ? gms2 : 0,
+      foodGroup: grp2
+    };
+  }
   var p = products.find(function(pr){ return pr.id===e.productId; });
-  if(!p) return { name: '(удалён)', grams: e.grams, kcal:0, protein:0, fat:0, carbs:0, fiber:0, vegGrams:0, fruitGrams:0, foodGroup:'other' };
+  if(!p) return { name: e.name || '(удалён)', grams: e.grams, kcal: e.kcal||0, protein: e.protein||0, fat: e.fat||0, carbs: e.carbs||0, fiber: e.fiber||0, vegGrams:0, fruitGrams:0, foodGroup:'other' };
   ensureProductMeta(p);
   var f = e.grams/100;
   var grp = p.foodGroup || 'other';
@@ -922,6 +976,60 @@ function entryMacros(e){
     fruitGrams: grp === 'fruit' ? e.grams : 0,
     foodGroup: grp
   };
+}
+function migrateDiarySnapshots(){
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k = localStorage.key(i);
+      if(!k || k.indexOf('diary:') !== 0) continue;
+      var date = k.slice(6);
+      getDiary(date);
+    }
+  }catch(err){}
+  Object.keys(diaryCache).forEach(function(d){
+    var list = diaryCache[d] || [];
+    var ch = false;
+    list.forEach(function(e){
+      if(e.custom || e.snap) return;
+      if(!e.productId || !(e.grams > 0)) return;
+      var p = products.find(function(pr){ return pr.id === e.productId; });
+      if(p){
+        e.snap = snapshotFromProduct(p, e.grams);
+        ch = true;
+      }
+    });
+    if(ch) saveDiary(d, list);
+  });
+}
+function packageStep(p){
+  if(!p) return 0;
+  if(p.packageGrams > 0) return p.packageGrams;
+  if(productHasPortion(p) && /штук|ломт|кусок|упак|пачк/i.test(p.portionName||'')) return p.portionGrams;
+  var pm = /(\d{2,4})\s*(?:г|гр|мл)\b/i.exec(p.name || '');
+  if(pm && +pm[1] >= 50 && +pm[1] <= 2000) return +pm[1];
+  return 0;
+}
+function roundToPackage(grams, p){
+  var step = packageStep(p);
+  if(!step || step < 10) return grams;
+  var n = Math.max(1, Math.round(grams / step));
+  return n * step;
+}
+function invGet(id){
+  var x = inventory[id];
+  return x && x.grams > 0 ? x.grams : 0;
+}
+function invSet(id, grams, note){
+  if(grams > 0) inventory[id] = { grams: round(grams), note: note || (inventory[id] && inventory[id].note) || '' };
+  else delete inventory[id];
+  sSet('inventory', inventory);
+}
+function invDeduct(id, grams){
+  if(!(grams > 0) || !id) return;
+  var have = invGet(id);
+  if(have <= 0) return;
+  // списание с запасом: не уходим в минус; «едят и другие» — можно списать не всё
+  invSet(id, Math.max(0, have - grams));
 }
 
 function computeTotals(entries){
@@ -1020,12 +1128,15 @@ function init(){
     mealPlan = (mp && typeof mp === 'object' && !Array.isArray(mp)) ? mp : {};
     var sc = sGet('shopChecked', {});
     shopChecked = (sc && typeof sc === 'object' && !Array.isArray(sc)) ? sc : {};
+    var inv = sGet('inventory', {});
+    inventory = (inv && typeof inv === 'object' && !Array.isArray(inv)) ? inv : {};
     weightLog = w || [];
     measureLog = Array.isArray(ml) ? ml : [];
     creatineLog = cr && typeof cr === 'object' ? cr : {};
     exercises = Array.isArray(ex) ? ex : [];
     favorites = Array.isArray(fav) ? fav : [];
     trainingDays = td && typeof td === 'object' ? td : {};
+    migrateDiarySnapshots();
   }catch(e){
     products = defaultProducts();
   }
@@ -1802,8 +1913,8 @@ function renderProductsTab(content, fab){
     <div class="card">${products.length ? products.map(p=>`
       <div class="prod-row">
         <div>
-          <div class="pname">${p.isRecipe?'🍳 ':''}${p.name}</div>
-          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs}${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
+          <div class="pname">${p.isRecipe?'🍳 ':''}${p.excludeFromPlan?'🚫 ':''}${invGet(p.id)>0?'🧊 ':''}${p.name}</div>
+          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs}${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.packageGrams?' · уп. '+p.packageGrams+'г':''}${p.price!=null?' · '+p.price+'₽':''}${invGet(p.id)>0?' · в хол. '+invGet(p.id)+'г':''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
         </div>
         <div class="prod-actions">
           <button data-edit="${p.id}">✎</button>
@@ -2811,6 +2922,7 @@ function collectAllData(){
     exercises: exercises,
     mealPlan: mealPlan,
     shopChecked: shopChecked,
+    inventory: inventory,
     diary: diary,
     workouts: workouts,
     bike: bike
@@ -2870,6 +2982,7 @@ function importData(ev){
       sSet('exercises', exercises);
       if(data.mealPlan && typeof data.mealPlan === 'object'){ mealPlan = data.mealPlan; sSet('mealPlan', mealPlan); }
       if(data.shopChecked && typeof data.shopChecked === 'object'){ shopChecked = data.shopChecked; sSet('shopChecked', shopChecked); }
+      if(data.inventory && typeof data.inventory === 'object'){ inventory = data.inventory; sSet('inventory', inventory); }
       diaryCache = {};
       if(data.diary){
         Object.keys(data.diary).forEach(function(date){
@@ -3192,6 +3305,7 @@ function openAddEntry(existing){
         existing.grams = g;
         existing.meal = meal;
         existing.time = timeVal;
+        existing.snap = snapshotFromProduct(selected, g);
         delete existing.custom;
         delete existing.name;
         delete existing.kcal;
@@ -3199,7 +3313,8 @@ function openAddEntry(existing){
         delete existing.fat;
         delete existing.carbs;
       } else {
-        entries.push({id:uid(), productId:selected.id, grams:g, meal:meal, time:timeVal});
+        entries.push({id:uid(), productId:selected.id, grams:g, meal:meal, time:timeVal, snap: snapshotFromProduct(selected, g)});
+        invDeduct(selected.id, g);
       }
     } else {
       var name = (document.getElementById('customName').value || '').trim() || 'Свой приём';
@@ -3219,6 +3334,7 @@ function openAddEntry(existing){
         existing.time = timeVal;
         delete existing.productId;
         delete existing.grams;
+        delete existing.snap;
       } else {
         entries.push({id:uid(), custom:true, name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs, meal:meal, time:timeVal});
       }
@@ -3311,11 +3427,25 @@ function openProductForm(existing){
             return '<button type="button" class="btn ghost" data-pn="'+pr[0]+'" data-pg="'+pr[1]+'" style="padding:6px 10px;font-size:12px;">'+pr[0]+' '+pr[1]+'г</button>';
           }).join('')}
         </div>
+        <div class="section-title" style="margin-top:4px;">Упаковка и план</div>
+        <div class="row2">
+          <div class="field"><label>Упаковка, г</label><input id="pPack" type="number" inputmode="decimal" placeholder="130" value="${existing&&existing.packageGrams?existing.packageGrams:''}"></div>
+          <div class="field"><label>Цена за упаковку, ₽</label><input id="pPrice" type="number" inputmode="decimal" placeholder="120" value="${existing&&existing.price!=null?existing.price:''}"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin:-4px 0 8px;line-height:1.35;">Автоподбор будет кратен упаковке (тунец 130 г → 130/260…). Цена — вручную; сайты из браузера часто блокируют парсинг (CORS).</div>
+        <label style="display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:13px;">
+          <input type="checkbox" id="pNoPlan" ${existing&&existing.excludeFromPlan?'checked':''} style="width:20px;height:20px;accent-color:var(--green);">
+          <span>Не подбирать в автоплан / список покупок</span>
+        </label>
+        <div class="row2">
+          <div class="field"><label>В холодильнике, г</label><input id="pInv" type="number" inputmode="decimal" placeholder="0" value="${existing?invGet(existing.id)||'':''}"></div>
+          <div class="field"><label>Заметка</label><input id="pInvNote" type="text" placeholder="общее / моё" value="${existing&&inventory[existing.id]? (inventory[existing.id].note||'') : ''}"></div>
+        </div>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
           <button class="btn primary" id="saveBtn">Сохранить</button>
         </div>
-        ${existing?'<button class="btn danger" id="delBtn" style="width:100%;margin-top:10px;">Удалить продукт</button>':''}
+        ${existing?'<button class="btn danger" id="delBtn" style="width:100%;margin-top:10px;">Удалить из базы (записи в дневнике останутся)</button>':''}
       </div>
     </div>`;
   document.querySelectorAll('#portionPresets [data-pn]').forEach(function(b){
@@ -3336,8 +3466,19 @@ function openProductForm(existing){
     const foodGroup = document.getElementById('pGroup').value || 'other';
     const portionName = (document.getElementById('pPortionName').value || '').trim();
     const portionGrams = parseFloat(document.getElementById('pPortionGrams').value);
+    const packageGrams = parseFloat(document.getElementById('pPack').value);
+    const price = parseFloat(document.getElementById('pPrice').value);
+    const excludeFromPlan = !!(document.getElementById('pNoPlan') && document.getElementById('pNoPlan').checked);
+    const invG = parseFloat(document.getElementById('pInv').value);
+    const invNote = (document.getElementById('pInvNote').value || '').trim();
     if(!name || isNaN(kcal)){ showToast('Заполни название и калории'); return; }
-    var portion = { fiber: isNaN(fiber) ? 0 : fiber, foodGroup: foodGroup };
+    var portion = {
+      fiber: isNaN(fiber) ? 0 : fiber,
+      foodGroup: foodGroup,
+      excludeFromPlan: excludeFromPlan,
+      packageGrams: (packageGrams > 0) ? packageGrams : null,
+      price: (!isNaN(price) && price >= 0) ? price : null
+    };
     if(portionName && portionGrams > 0){
       portion.portionName = portionName;
       portion.portionGrams = portionGrams;
@@ -3345,19 +3486,25 @@ function openProductForm(existing){
       portion.portionName = null;
       portion.portionGrams = null;
     }
+    var pid;
     if(existing){
       Object.assign(existing, {name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs}, portion);
+      pid = existing.id;
     } else {
-      products.push(Object.assign({id:uid(), name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs}, portion));
+      pid = uid();
+      products.push(Object.assign({id:pid, name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs}, portion));
     }
     sSet('products', products);
+    if(!isNaN(invG) && invG >= 0) invSet(pid, invG, invNote);
     closeModal();
     render();
   };
   const delBtn = document.getElementById('delBtn');
   if(delBtn) delBtn.onclick = function(){
+    // дневник не трогаем — записи со snap остаются
     products = products.filter(function(p){ return p.id!==existing.id; });
     sSet('products', products);
+    showToast('Удалено из базы. Записи в дневнике сохранены');
     closeModal();
     render();
   };
@@ -3597,7 +3744,7 @@ function planCandidates(){
   var dbNames = {};
   products.forEach(function(p){ dbNames[(p.name||'').trim().toLowerCase()] = true; });
   function rank(p){ return favorites.indexOf(p.id) >= 0 ? -1e6 : -(counts[p.id]||0); }
-  var list = products.slice().sort(function(a,b){
+  var list = products.filter(function(p){ return !p.excludeFromPlan; }).slice().sort(function(a,b){
     var ra = rank(a), rb = rank(b);
     if(ra !== rb) return ra - rb;
     return (a.name||'').localeCompare(b.name||'', 'ru');
@@ -4169,10 +4316,13 @@ function autoRoleOf(p){
 function autoBuildPool(counts){
   var pool = { prot:[], carb:[], veg:[], fruit:[], fat:[] };
   function add(p, staple){
+    if(p.excludeFromPlan) return;
     var role = autoRoleOf(p);
     if(!role) return;
     var c = counts[p.id] || 0;
     var w = staple ? 1.2 : (0.6 + Math.min(c, 8) * 0.5 + (favorites.indexOf(p.id) >= 0 ? 3 : 0));
+    // бонус, если продукт уже в холодильнике
+    if(invGet(p.id) > 0) w += 2.5;
     pool[role].push({ key: autoNameKey(p), p: p, staple: !!staple, w: w, kind: role === 'prot' ? autoKind(p) : null });
   }
   var names = {};
@@ -4198,12 +4348,11 @@ function autoPick(weights){
 }
 function autoMakeItem(c, role, slot){
   var p = c.p;
+  if(p.excludeFromPlan) return null;
   var dens = Math.max(p.kcal || 0, 1) / 100;
-  var portionStep = (productHasPortion(p) && /штук|ломт|кусок/.test(p.portionName)) ? p.portionGrams : 0;
-  if(!portionStep){
-    var pm = /(\d{2,4})\s*(?:г|гр|мл)?\s*$/i.exec(p.name || '');
-    if(pm && +pm[1] >= 60 && +pm[1] <= 1000) portionStep = +pm[1]; // вес упаковки из названия
-  }
+  // приоритет: явная упаковка → порция-штука → вес из названия
+  var portionStep = packageStep(p);
+  if(!portionStep && productHasPortion(p) && /штук|ломт|кусок|упак/.test(p.portionName||'')) portionStep = p.portionGrams;
   var step = portionStep || 5;
   var minG, maxG, goalG;
   if(role === 'prot'){
@@ -4222,12 +4371,23 @@ function autoMakeItem(c, role, slot){
     minG = 40 / dens; maxG = Math.min(200 / dens, 150); goalG = 70 / dens;
   }
   if(portionStep >= 30){
+    // только целые упаковки / ломти: не предлагать 30 г хлеба если упаковка 300+
     minG = portionStep;
-    maxG = portionStep * (portionStep >= 100 ? 2 : (role === 'prot' ? 5 : 3));
+    // хлеб/батон и крупные упаковки — 1–2 шт; тунец 130 — до 2–3
+    var maxPacks = portionStep >= 250 ? 2 : (portionStep >= 100 ? 3 : (role === 'prot' ? 5 : 3));
+    maxG = portionStep * maxPacks;
   }
   minG = Math.max(step, Math.ceil(minG / step) * step);
   maxG = Math.max(minG, Math.floor(maxG / step) * step);
   var g = Math.min(maxG, Math.max(minG, Math.round(goalG / step) * step));
+  // если в холодильнике есть запас — предпочитаем не больше запаса (кратность)
+  var have = invGet(p.id);
+  if(have > 0 && portionStep >= 30){
+    var maxFromInv = Math.floor(have / portionStep) * portionStep;
+    if(maxFromInv >= portionStep) maxG = Math.min(maxG, maxFromInv);
+    else { /* нет целой упаковки дома — всё равно можно предложить купить 1 */ }
+  }
+  g = Math.min(maxG, Math.max(minG, g));
   return {
     c: c, p: p, role: role, slot: slot, g: g, min: minG, max: maxG, step: step, portion: !!portionStep,
     k: (p.kcal || 0) / 100, pr: (p.protein || 0) / 100, fa: (p.fat || 0) / 100, ca: (p.carbs || 0) / 100,
@@ -4309,8 +4469,10 @@ function autoTrial(slots, pool, ctx){
       });
       var idx = autoPick(weights);
       if(idx < 0) return;
+      var item = autoMakeItem(list[idx], t.role, slot);
+      if(!item) return;
       used[list[idx].key] = true;
-      items.push(autoMakeItem(list[idx], t.role, slot));
+      items.push(item);
     });
   });
   return items;
@@ -4318,7 +4480,7 @@ function autoTrial(slots, pool, ctx){
 function autoVarPenalty(items, ctx){
   var pen = 0;
   items.forEach(function(it){
-    if(it.role === 'veg' || it.role === 'fat') return;
+    if(!it || it.role === 'veg' || it.role === 'fat') return;
     var u = Math.min(ctx.usage[it.c.key] || 0, 3);
     pen += ctx.style === 'variety' ? 0.10 * u : -0.04 * u;
   });

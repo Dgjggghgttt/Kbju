@@ -2619,80 +2619,6 @@ function openFridgeEdit(p){
   };
 }
 
-function renderWeightTab(content, fab, append){
-  const sorted = [...weightLog].sort(function(a,b){ return a.date.localeCompare(b.date); });
-  // период для графика: выбранный periodFrom–periodTo или последние ~90 дней
-  var chartFrom = periodFrom || null;
-  var chartTo = periodTo || null;
-  if(!chartFrom || !chartTo){
-    if(sorted.length){
-      chartTo = sorted[sorted.length-1].date;
-      chartFrom = shiftDate(chartTo, -90);
-      if(sorted[0].date > chartFrom) chartFrom = sorted[0].date;
-    }
-  }
-  var ptsData = sorted.filter(function(w){
-    if(chartFrom && w.date < chartFrom) return false;
-    if(chartTo && w.date > chartTo) return false;
-    return true;
-  });
-  if(ptsData.length < 2 && sorted.length >= 2){
-    ptsData = sorted.slice(-Math.min(sorted.length, 20));
-  }
-
-  let chart = '';
-  if(ptsData.length >= 2){
-    var t0 = dateToMs(ptsData[0].date);
-    var t1 = dateToMs(ptsData[ptsData.length-1].date);
-    var tSpan = Math.max(t1 - t0, 86400000);
-    var vals = ptsData.map(function(w){ return w.kg; });
-    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
-    var range = (max - min) || 1;
-    min -= range * 0.12; max += range * 0.12; range = max - min;
-    var W = 320, H = 150, padL = 28, padR = 28, padT = 18, padB = 24;
-
-    function xy(w){
-      var x = padL + ((dateToMs(w.date) - t0) / tSpan) * (W - padL - padR);
-      var y = padT + (1 - (w.kg - min) / range) * (H - padT - padB);
-      return { x: x, y: y };
-    }
-
-    // continuous polyline (no dots)
-    var pathD = '';
-    for(var i=0;i<ptsData.length;i++){
-      var p = xy(ptsData[i]);
-      pathD += (i===0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
-    }
-    var overallDelta = ptsData[ptsData.length-1].kg - ptsData[0].kg;
-    var lineColor = overallDelta > 0.05 ? '#c45c4a' : (overallDelta < -0.05 ? '#3c6e47' : '#8a8a7d');
-
-    var startP = xy(ptsData[0]);
-    var endP = xy(ptsData[ptsData.length-1]);
-    var startLbl = ptsData[0].kg + '';
-    var endLbl = ptsData[ptsData.length-1].kg + '';
-    var dateStart = ptsData[0].date.slice(5);
-    var dateEnd = ptsData[ptsData.length-1].date.slice(5);
-
-    var deltaStr = (overallDelta > 0 ? '+' : '') + round(overallDelta) + ' кг';
-    var deltaColor = overallDelta > 0.05 ? 'var(--red)' : (overallDelta < -0.05 ? 'var(--green)' : 'var(--muted)');
-    var daysSpan = Math.max(1, daysBetween(ptsData[0].date, ptsData[ptsData.length-1].date));
-
-    chart = '<div class="card" style="padding:12px 10px 10px;">'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">'+
-        '<div style="font-size:12px;color:var(--muted);">'+fmtDateHuman(ptsData[0].date)+' → '+fmtDateHuman(ptsData[ptsData.length-1].date)+'</div>'+
-        '<div style="font-size:18px;font-weight:700;color:'+deltaColor.replace('var(--red)','#c45c4a').replace('var(--green)','#3c6e47').replace('var(--muted)','#8a8a7d')+';">'+deltaStr+'</div>'+
-      '</div>'+
-      '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">за '+daysSpan+' дн. · '+ptsData[0].kg+' → '+ptsData[ptsData.length-1].kg+' кг</div>'+
-      '<svg class="chart" viewBox="0 0 '+W+' '+H+'" style="height:160px;">'+
-        '<path d="'+pathD+'" fill="none" stroke="'+lineColor+'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'+
-        '<text x="'+startP.x+'" y="'+(startP.y-6)+'" font-size="10" fill="#8a8a7d" text-anchor="middle" font-family="system-ui">'+startLbl+'</text>'+
-        '<text x="'+endP.x+'" y="'+(endP.y-6)+'" font-size="10" fill="#8a8a7d" text-anchor="middle" font-family="system-ui">'+endLbl+'</text>'+
-        '<text x="'+padL+'" y="'+(H-4)+'" font-size="9" fill="#8a8a7d" font-family="system-ui">'+dateStart+'</text>'+
-        '<text x="'+(W-padR)+'" y="'+(H-4)+'" font-size="9" fill="#8a8a7d" font-family="system-ui" text-anchor="end">'+dateEnd+'</text>'+
-      '</svg></div>';
-  }
-
-
 function buildWeekPairHtml(sorted){
   // week-to-week — свайп по парам недель; слева прошлая, справа новая
   var today = todayStr();
@@ -2766,6 +2692,81 @@ function bindWeekPairHandlers(){
     }, {passive:true});
   }
 }
+
+
+function renderWeightTab(content, fab, append){
+  const sorted = [...weightLog].sort(function(a,b){ return a.date.localeCompare(b.date); });
+  // период для графика: выбранный periodFrom–periodTo или последние ~90 дней
+  var chartFrom = periodFrom || null;
+  var chartTo = periodTo || null;
+  if(!chartFrom || !chartTo){
+    if(sorted.length){
+      chartTo = sorted[sorted.length-1].date;
+      chartFrom = shiftDate(chartTo, -90);
+      if(sorted[0].date > chartFrom) chartFrom = sorted[0].date;
+    }
+  }
+  var ptsData = sorted.filter(function(w){
+    if(chartFrom && w.date < chartFrom) return false;
+    if(chartTo && w.date > chartTo) return false;
+    return true;
+  });
+  if(ptsData.length < 2 && sorted.length >= 2){
+    ptsData = sorted.slice(-Math.min(sorted.length, 20));
+  }
+
+  let chart = '';
+  if(ptsData.length >= 2){
+    var t0 = dateToMs(ptsData[0].date);
+    var t1 = dateToMs(ptsData[ptsData.length-1].date);
+    var tSpan = Math.max(t1 - t0, 86400000);
+    var vals = ptsData.map(function(w){ return w.kg; });
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    var range = (max - min) || 1;
+    min -= range * 0.12; max += range * 0.12; range = max - min;
+    var W = 320, H = 150, padL = 28, padR = 28, padT = 18, padB = 24;
+
+    function xy(w){
+      var x = padL + ((dateToMs(w.date) - t0) / tSpan) * (W - padL - padR);
+      var y = padT + (1 - (w.kg - min) / range) * (H - padT - padB);
+      return { x: x, y: y };
+    }
+
+    // continuous polyline (no dots)
+    var pathD = '';
+    for(var i=0;i<ptsData.length;i++){
+      var p = xy(ptsData[i]);
+      pathD += (i===0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }
+    var overallDelta = ptsData[ptsData.length-1].kg - ptsData[0].kg;
+    var lineColor = overallDelta > 0.05 ? '#c45c4a' : (overallDelta < -0.05 ? '#3c6e47' : '#8a8a7d');
+
+    var startP = xy(ptsData[0]);
+    var endP = xy(ptsData[ptsData.length-1]);
+    var startLbl = ptsData[0].kg + '';
+    var endLbl = ptsData[ptsData.length-1].kg + '';
+    var dateStart = ptsData[0].date.slice(5);
+    var dateEnd = ptsData[ptsData.length-1].date.slice(5);
+
+    var deltaStr = (overallDelta > 0 ? '+' : '') + round(overallDelta) + ' кг';
+    var deltaColor = overallDelta > 0.05 ? 'var(--red)' : (overallDelta < -0.05 ? 'var(--green)' : 'var(--muted)');
+    var daysSpan = Math.max(1, daysBetween(ptsData[0].date, ptsData[ptsData.length-1].date));
+
+    chart = '<div class="card" style="padding:12px 10px 10px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">'+
+        '<div style="font-size:12px;color:var(--muted);">'+fmtDateHuman(ptsData[0].date)+' → '+fmtDateHuman(ptsData[ptsData.length-1].date)+'</div>'+
+        '<div style="font-size:18px;font-weight:700;color:'+deltaColor.replace('var(--red)','#c45c4a').replace('var(--green)','#3c6e47').replace('var(--muted)','#8a8a7d')+';">'+deltaStr+'</div>'+
+      '</div>'+
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">за '+daysSpan+' дн. · '+ptsData[0].kg+' → '+ptsData[ptsData.length-1].kg+' кг</div>'+
+      '<svg class="chart" viewBox="0 0 '+W+' '+H+'" style="height:160px;">'+
+        '<path d="'+pathD+'" fill="none" stroke="'+lineColor+'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'+
+        '<text x="'+startP.x+'" y="'+(startP.y-6)+'" font-size="10" fill="#8a8a7d" text-anchor="middle" font-family="system-ui">'+startLbl+'</text>'+
+        '<text x="'+endP.x+'" y="'+(endP.y-6)+'" font-size="10" fill="#8a8a7d" text-anchor="middle" font-family="system-ui">'+endLbl+'</text>'+
+        '<text x="'+padL+'" y="'+(H-4)+'" font-size="9" fill="#8a8a7d" font-family="system-ui">'+dateStart+'</text>'+
+        '<text x="'+(W-padR)+'" y="'+(H-4)+'" font-size="9" fill="#8a8a7d" font-family="system-ui" text-anchor="end">'+dateEnd+'</text>'+
+      '</svg></div>';
+  }
+
 
   var weekHtml = buildWeekPairHtml(sorted);
 
@@ -2876,8 +2877,10 @@ function bindWeekPairHandlers(){
         </div>`;
       }).join('');
     })()}</div>`;
-  if(append) content.insertAdjacentHTML('beforeend', _whtml);
-  else content.innerHTML = _whtml;
+  if(append){
+    if(content.insertAdjacentHTML) content.insertAdjacentHTML('beforeend', _whtml);
+    else content.innerHTML += _whtml;
+  } else content.innerHTML = _whtml;
 
   var wToggle = document.getElementById('weightLogToggle');
   if(wToggle){
@@ -2939,12 +2942,14 @@ function bindWeekPairHandlers(){
     }, {passive:true});
   }
 
-  document.getElementById('periodCalcBtn').onclick = function(){
+  var periodCalcBtn = document.getElementById('periodCalcBtn');
+  if(periodCalcBtn) periodCalcBtn.onclick = function(){
     periodFrom = document.getElementById('periodFrom').value;
     periodTo = document.getElementById('periodTo').value;
     render(); // график и итоги пересчитываются под период
   };
-  document.getElementById('periodAllBtn').onclick = function(){
+  var periodAllBtn = document.getElementById('periodAllBtn');
+  if(periodAllBtn) periodAllBtn.onclick = function(){
     var allD = collectDiaryDates();
     var s = [...weightLog].sort(function(a,b){ return a.date.localeCompare(b.date); });
     var f = (s[0] && s[0].date) || (allD[0] || todayStr());
@@ -2960,9 +2965,13 @@ function bindWeekPairHandlers(){
     render();
   };
   // auto-calc on open
-  renderPeriodResult(document.getElementById('periodResult'), defaultFrom, defaultTo);
-  fab.innerHTML = `<button id="addWeightBtn">+ Записать вес</button>`;
-  document.getElementById('addWeightBtn').onclick = openAddWeight;
+  var periodResultEl = document.getElementById('periodResult');
+  if(periodResultEl) renderPeriodResult(periodResultEl, defaultFrom, defaultTo);
+  if(fab){
+    fab.innerHTML = `<button id="addWeightBtn">+ Записать вес</button>`;
+    var aw = document.getElementById('addWeightBtn');
+    if(aw) aw.onclick = openAddWeight;
+  }
 }
 
 var periodFrom = null;
@@ -3242,13 +3251,20 @@ function renderReportTab(content, fab){
       render();
     };
   });
-  document.getElementById('goalsCard').onclick = openGoalsForm;
-  document.getElementById('exportBtn').onclick = exportData;
-  document.getElementById('importBtn').onclick = ()=>document.getElementById('importFile').click();
-  document.getElementById('importFile').onchange = importData;
+  var goalsCard = document.getElementById('goalsCard');
+  if(goalsCard) goalsCard.onclick = openGoalsForm;
+  var exportBtn = document.getElementById('exportBtn');
+  if(exportBtn) exportBtn.onclick = exportData;
+  var importBtn = document.getElementById('importBtn');
+  var importFile = document.getElementById('importFile');
+  if(importBtn && importFile){
+    importBtn.onclick = function(){ importFile.click(); };
+    importFile.onchange = importData;
+  }
 
   bindWeekPairHandlers();
-  renderWeightTab(content, fab, true);
+  try{ renderWeightTab(content, fab, true); }
+  catch(err){ console && console.error && console.error(err); }
 }
 
 function buildDietSummaryForAI(){

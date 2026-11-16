@@ -251,7 +251,8 @@ var goals = {
   smartAdjust: false, // спокойный режим: одна норма, без автоурезки
   autoFromWeight: false, // автоцели: −0.5 кг/нед от поддержания
   rule8020: true, // 1 день поддержки в неделю
-  maintenanceWeekday: 0 // 0=вс … 6=сб; день поддержки
+  maintenanceWeekday: 0, // 0=вс … 6=сб; день поддержки
+  workoutAuto: true // авто-упражнения с прогрессией по прошлым тренировкам
 };
 var dayTemplate = null; // {entries: simplified[]}
 var weightLog = [];
@@ -885,15 +886,147 @@ function suggestNextSession(last){
   };
 }
 
+
+/** Последняя реальная (не только план) запись упражнения до date */
+function getLastRealSession(exerciseName, beforeDate){
+  var hist = collectExerciseHistory(exerciseName);
+  var prev = hist.filter(function(h){
+    if(beforeDate && h.date >= beforeDate) return false;
+    // пропускаем пустые «только план»
+    if(h.planned && !h.done) return false;
+    return h.weight != null;
+  });
+  return prev.length ? prev[prev.length-1] : null;
+}
+
+function weekdayOf(date){
+  var p = date.split('-');
+  return new Date(+p[0], +p[1]-1, +p[2]).getDay();
+}
+
+/** Ближайший прошлый день с тренировкой (желательно тот же день недели) */
+function findTemplateTrainingDate(forDate){
+  var wantWd = weekdayOf(forDate);
+  var sameWd = null, any = null;
+  // сканируем до 56 дней назад
+  for(var i=1;i<=56;i++){
+    var d = shiftDate(forDate, -i);
+    var list = getWorkouts(d);
+    if(!list || !list.length) continue;
+    // есть хотя бы одно выполненное или с весом
+    var real = list.filter(function(w){ return w.weight != null && (w.done !== false || !w.planned); });
+    if(!real.length) real = list;
+    if(!real.length) continue;
+    if(!any) any = d;
+    if(weekdayOf(d) === wantWd){ sameWd = d; break; }
+  }
+  return sameWd || any;
+}
+
+/**
+ * Обратная связь: факт vs цель
+ * → совет: +вес или +повторы
+ */
+function feedbackAfterSession(done, target){
+  if(!done || done.weight == null) return null;
+  var dSets = parseSetArray(done.sets);
+  var tSets = target ? parseSetArray(target.sets || target.targetSets) : [];
+  var dW = done.weight;
+  var tW = target && target.weight != null ? target.weight : (target && target.targetWeight);
+  if(!dSets.length) return { text: 'Запиши повторы, чтобы дать совет по прогрессии.' };
+  var dMin = Math.min.apply(null, dSets);
+  var dMax = Math.max.apply(null, dSets);
+  var dAll = dSets.every(function(r){ return r === dMax; });
+  var dVol = dW * dSets.reduce(function(a,b){ return a+b; }, 0);
+
+  // не добил цель по повторам на том же весе
+  if(tW != null && dW <= tW && tSets.length){
+    var tMin = Math.min.apply(null, tSets);
+    if(dMin < tMin || (!dAll && dMin < dMax)){
+      return {
+        kind: 'reps',
+        text: 'Цель по повторам не закрыта. На следующей: тот же вес '+dW+' кг, добей до '+dSets.map(function(){return dMax;}).join('/')+'.'
+      };
+    }
+  }
+
+  // сделал все равные и ≥ цели
+  if(dAll && dMax >= 12){
+    var newW = Math.round((dW + 2.5) * 2) / 2;
+    return {
+      kind: 'weight',
+      text: 'Отлично, все подходы по '+dMax+'. Следующий раз: +вес → '+newW+' кг × примерно '+(Math.max(6, dMax-2))+'/'+(Math.max(6, dMax-2))+'/'+(Math.max(6, dMax-2))+'.'
+    };
+  }
+  if(dAll && dMax < 12){
+    var bump = dSets.slice(); bump[0] = dMax + 2;
+    return {
+      kind: 'reps',
+      text: 'Стабильно '+dMax+' во всех подходах. Дальше: '+dW+' кг · '+bump.join('/')+' (добавь повторы).'
+    };
+  }
+  // пирамида вниз
+  return {
+    kind: 'reps',
+    text: 'Сейчас '+done.sets+'. Выровняй подходы до '+dMax+' на '+dW+' кг, потом повышай вес.'
+  };
+}
+
+/** Автозаполнение упражнений на день по прошлой тренировке + прогрессия */
+function autoSeedWorkoutsForDate(date){
+  if(goals.workoutAuto === false) return false;
+  date = date || currentDate;
+  var existing = getWorkouts(date);
+  if(existing && existing.length) return false; // уже есть — не трогаем
+
+  var tplDate = findTemplateTrainingDate(date);
+  if(!tplDate) return false;
+  var tpl = getWorkouts(tplDate);
+  if(!tpl.length) return false;
+
+  // уникальные упражнения с последней реальной сессии
+  var seen = {};
+  var seeded = [];
+  tpl.forEach(function(w){
+    var key = (w.name||'').toLowerCase();
+    if(!key || seen[key]) return;
+    seen[key] = true;
+    var last = getLastRealSession(w.name, date) || {
+      date: tplDate, weight: w.weight, sets: w.sets, planned: w.planned, done: w.done
+    };
+    var next = suggestNextSession(last);
+    if(!next){
+      next = { weight: w.weight, sets: w.sets || '8/8/8', text: 'Повтори прошлый результат и постарайся добавить повтор.' };
+    }
+    seeded.push({
+      id: uid(),
+      name: w.name,
+      weight: next.weight,
+      sets: '', // факт пока пуст
+      targetWeight: next.weight,
+      targetSets: next.sets,
+      advice: next.text,
+      planned: true,
+      done: false,
+      fromDate: last.date || tplDate
+    });
+  });
+  if(!seeded.length) return false;
+  saveWorkouts(date, seeded);
+  return true;
+}
+
 function collectExerciseHistory(exerciseName){
   var nameLower = (exerciseName||'').toLowerCase();
   var pts = [];
   function scanDate(date, list){
     (list||[]).forEach(function(w){
       if((w.name||'').toLowerCase() === nameLower && w.weight != null && !isNaN(w.weight)){
+        // пропускаем чисто плановые без факта
+        if(w.planned && !w.done && !(w.sets && String(w.sets).trim())) return;
         var reps = parseTotalReps(w.sets||'');
         var volume = w.weight * (reps > 0 ? reps : 1);
-        pts.push({date:date, weight:w.weight, sets:w.sets||'', reps:reps, volume:volume});
+        pts.push({date:date, weight:w.weight, sets:w.sets||'', reps:reps, volume:volume, planned:!!w.planned, done:!!w.done});
       }
     });
   }
@@ -1376,6 +1509,7 @@ function init(){
       if(goals.autoFromWeight == null) goals.autoFromWeight = false;
       if(goals.rule8020 == null) goals.rule8020 = true;
       if(goals.maintenanceWeekday == null) goals.maintenanceWeekday = 0;
+      if(goals.workoutAuto == null) goals.workoutAuto = true;
       if(!goals.fiberTarget) goals.fiberTarget = 28;
       if(!goals.vegFruitTarget) goals.vegFruitTarget = 500;
       if(goals.smartAdjust == null) goals.smartAdjust = false;
@@ -1752,20 +1886,30 @@ function renderDiaryTab(content, fab){
     html += adjNote + creatHtml + bikeHtml + `<div class="card">${sortedEntries.map(entryRow).join('')}</div>`;
   }
 
-  // Workout diary for the day
+  // Workout diary for the day — автозаполнение плана с прогрессией
+  if(goals.workoutAuto !== false){
+    try{ autoSeedWorkoutsForDate(currentDate); }catch(e){}
+  }
   var workouts = getWorkouts(currentDate);
-  html += `<div class="section-title" style="margin-top:16px;">Тренировка с железом</div>`;
+  html += `<div class="section-title" style="margin-top:16px;">Тренировка с железом${goals.workoutAuto!==false?' · авто':''}</div>`;
   if(!workouts.length){
-    html += `<div class="card"><div class="empty" style="padding:14px;">Нет упражнений за день</div>
-      <button class="btn ghost" id="addWorkoutBtn" style="width:100%;margin-top:4px;">+ Упражнение</button></div>`;
+    html += `<div class="card"><div class="empty" style="padding:14px;">Нет упражнений за день${goals.workoutAuto!==false?'<br><span style="font-size:12px;color:var(--muted)">Авто подставит план после первой записанной тренировки</span>':''}</div>
+      <button class="btn ghost" id="addWorkoutBtn" style="width:100%;margin-top:4px;">+ Упражнение</button>
+      <button class="btn ghost" id="seedWorkoutBtn" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button></div>`;
   } else {
     html += `<div class="card">${workouts.map(function(w){
-      var sets = w.sets || '';
-      var wt = w.weight != null && w.weight !== '' ? (w.weight + ' кг') : '';
-      return `<div class="entry" data-edit-workout="${w.id}">
-        <div style="flex:1">
-          <div class="name">${w.name||'Упражнение'}</div>
-          <div class="grams">${wt}${wt && sets ? ' · ' : ''}${sets ? sets : ''}</div>
+      var target = (w.targetWeight != null ? w.targetWeight+' кг' : '') + (w.targetSets ? ' · '+w.targetSets : '');
+      var fact = (w.weight != null && w.sets ? (w.weight+' кг · '+w.sets) : (w.done ? (w.weight != null ? w.weight+' кг' : '') : ''));
+      var status = w.done ? '✓ сделано' : (w.planned ? 'цель' : '');
+      var advice = w.advice || '';
+      var fb = w.feedback || '';
+      return `<div class="entry" data-edit-workout="${w.id}" style="flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">
+          <div class="name">${w.name||'Упражнение'}${status?' <span style="font-size:11px;color:var(--muted);font-weight:500;">· '+status+'</span>':''}</div>
+          ${target ? '<div class="grams">Цель: '+target+(w.fromDate?' <span style="color:var(--muted)">(от '+w.fromDate.slice(5)+')</span>':'')+'</div>' : ''}
+          ${fact ? '<div class="grams">Факт: '+fact+'</div>' : '<div class="grams" style="color:var(--muted)">Факт не записан — нажми, чтобы внести</div>'}
+          ${advice && !w.done ? '<div style="font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.35;">'+advice+'</div>' : ''}
+          ${fb ? '<div style="font-size:12px;color:var(--green);margin-top:4px;line-height:1.35;font-weight:600;">'+fb+'</div>' : ''}
         </div>
         <button class="btn ghost" data-ex-chart="${(w.name||'').replace(/"/g,'')}" style="padding:6px 8px;font-size:11px;margin-right:4px;">📈</button>
         <button class="del" data-wodel="${w.id}">✕</button>
@@ -1837,6 +1981,14 @@ function renderDiaryTab(content, fab){
   });
   var addW = document.getElementById('addWorkoutBtn');
   if(addW) addW.onclick = function(){ openWorkoutForm(null); };
+  var seedW = document.getElementById('seedWorkoutBtn');
+  if(seedW) seedW.onclick = function(){
+    var had = getWorkouts(currentDate).length > 0;
+    if(had){ showToast('Уже есть упражнения — удали или редактируй'); return; }
+    var ok = autoSeedWorkoutsForDate(currentDate);
+    showToast(ok ? 'План с прогрессией добавлен' : 'Нет прошлой тренировки для шаблона');
+    render();
+  };
 
   fab.innerHTML = `<button id="addEntryBtn">+ Добавить приём пищи</button>`;
   document.getElementById('addEntryBtn').onclick = function(){ openAddEntry(null); };
@@ -1912,21 +2064,32 @@ function openWorkoutForm(existing){
   if(existing && existing.name){
     selectedEx = exercises.find(function(e){ return e.name.toLowerCase() === existing.name.toLowerCase(); }) || {id:null, name:existing.name};
   }
+  // подставляем цель, если факт ещё пуст
+  var factW = existing && existing.done && existing.weight != null ? existing.weight : (existing && !existing.planned ? existing.weight : (existing && existing.weight != null && existing.sets ? existing.weight : (existing && existing.targetWeight != null ? existing.targetWeight : (existing && existing.weight != null ? existing.weight : ''))));
+  var factS = existing && existing.sets ? existing.sets : (existing && existing.targetSets ? existing.targetSets : '');
+  var goalLine = '';
+  if(existing && (existing.targetSets || existing.targetWeight != null)){
+    goalLine = '<div class="card" style="padding:10px 12px;margin-bottom:10px;font-size:13px;line-height:1.4;">'+
+      '<b>Цель:</b> '+(existing.targetWeight!=null?existing.targetWeight+' кг':'')+(existing.targetSets?' · '+existing.targetSets:'')+
+      (existing.advice?'<br><span style="color:var(--muted);font-size:12px;">'+existing.advice+'</span>':'')+
+      '</div>';
+  }
   root.innerHTML = `
     <div class="overlay" id="ov">
       <div class="sheet">
-        <h2>${existing ? 'Изменить упражнение' : 'Упражнение'}</h2>
+        <h2>${existing ? 'Упражнение' : 'Упражнение'}</h2>
+        ${goalLine}
         <div class="field">
           <label>Упражнение</label>
           <input type="text" id="woSearch" placeholder="Поиск или новое название…" value="${selectedEx ? selectedEx.name : ''}">
         </div>
         <div class="search-list" id="woResults" style="max-height:140px;"></div>
-        <div class="field" style="margin-top:10px;"><label>Вес, кг</label><input id="woWeight" type="number" inputmode="decimal" step="0.5" placeholder="27" value="${existing && existing.weight != null ? existing.weight : ''}"></div>
-        <div class="field"><label>Подходы / повторы</label><input id="woSets" type="text" placeholder="12/12/12 или 8×3" value="${existing ? (existing.sets||'') : ''}"></div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Выбери из базы или введи новое — сохранится в библиотеку.</div>
+        <div class="field" style="margin-top:10px;"><label>Факт: вес, кг</label><input id="woWeight" type="number" inputmode="decimal" step="0.5" placeholder="13" value="${factW}"></div>
+        <div class="field"><label>Факт: подходы / повторы</label><input id="woSets" type="text" placeholder="20/20/15" value="${factS}"></div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">После сохранения будет совет: +вес или +повторы.</div>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
-          <button class="btn primary" id="saveBtn">Сохранить</button>
+          <button class="btn primary" id="saveBtn">Сохранить факт</button>
         </div>
       </div>
     </div>`;
@@ -1972,8 +2135,29 @@ function openWorkoutForm(existing){
       existing.name = name;
       existing.weight = isNaN(weight) ? null : weight;
       existing.sets = sets;
+      existing.done = !!(sets && !isNaN(weight));
+      existing.planned = existing.planned || false;
+      var fb = feedbackAfterSession(existing, {
+        weight: existing.targetWeight != null ? existing.targetWeight : existing.weight,
+        sets: existing.targetSets || existing.sets
+      });
+      existing.feedback = fb ? fb.text : '';
+      if(fb) showToast(fb.kind === 'weight' ? 'Следующий шаг: +вес' : 'Следующий шаг: +повторы');
     } else {
-      list.push({id:uid(), name:name, weight: isNaN(weight) ? null : weight, sets:sets});
+      var row = {id:uid(), name:name, weight: isNaN(weight) ? null : weight, sets:sets, done: !!(sets && !isNaN(weight)), planned:false};
+      var last = getLastRealSession(name, currentDate);
+      var next = suggestNextSession(last || row);
+      if(next && !row.done){
+        row.targetWeight = next.weight;
+        row.targetSets = next.sets;
+        row.advice = next.text;
+        row.planned = true;
+      }
+      if(row.done){
+        var fb2 = feedbackAfterSession(row, next);
+        row.feedback = fb2 ? fb2.text : '';
+      }
+      list.push(row);
     }
     saveWorkouts(currentDate, list);
     closeModal();
@@ -4302,6 +4486,10 @@ function openGoalsForm(){
           <input type="checkbox" id="g8020" ${goals.rule8020!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
           <span><b>80/20 — 1 день поддержки в неделю</b><br><span style="color:var(--muted);font-size:12px;">В этот день норма = поддержание. Переел — со следующего дня обычный план, без отработки голодом.</span></span>
         </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
+          <input type="checkbox" id="gWoAuto" ${goals.workoutAuto!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
+          <span><b>Авто-упражнения</b><br><span style="color:var(--muted);font-size:12px;">В день тренировки подставляет упражнения с прошлой (тот же день недели) с целью по прогрессии. После факта — совет +вес или +повторы.</span></span>
+        </label>
         <div class="field"><label>День поддержки</label>
           <select id="gMaintDay" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:var(--surface);">
             <option value="0" ${goals.maintenanceWeekday===0?'selected':''}>Воскресенье</option>
@@ -4356,6 +4544,7 @@ function openGoalsForm(){
     if(mk2 > 0) goals.maintenanceKcal = mk2;
     goals.autoFromWeight = !!(document.getElementById('gAutoW') && document.getElementById('gAutoW').checked);
     goals.rule8020 = !!(document.getElementById('g8020') && document.getElementById('g8020').checked);
+    goals.workoutAuto = !!(document.getElementById('gWoAuto') && document.getElementById('gWoAuto').checked);
     goals.maintenanceWeekday = parseInt(document.getElementById('gMaintDay').value, 10);
     if(isNaN(goals.maintenanceWeekday)) goals.maintenanceWeekday = 0;
     goals.smartAdjust = !!(document.getElementById('gSmart') && document.getElementById('gSmart').checked);

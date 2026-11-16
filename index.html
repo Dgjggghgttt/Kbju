@@ -275,8 +275,12 @@ var planOpenDay = null;
 var BIKE_KCAL_PER_KM = 25;
 
 function isTrainingDay(date){
-  // Тренировка = есть упражнения в дневнике за день
-  return getWorkouts(date || currentDate).length > 0;
+  // Тренировка = есть записанный факт; для сегодня/будущего — ещё и запланированные упражнения
+  date = date || currentDate;
+  var list = getWorkouts(date);
+  if(!list.length) return false;
+  if(date >= todayStr()) return true;
+  return list.some(function(w){ return w.done || (w.sets && String(w.sets).trim()); });
 }
 function macrosFromDeficitPlan(planKcal){
   // Белок 150 фикс.
@@ -824,24 +828,90 @@ function parseTotalReps(setsStr){
   return parseSetArray(setsStr).reduce(function(a,b){ return a+b; }, 0);
 }
 
-function suggestNextSession(last){
-  // Hypertrophy: volume first, double progression in ~8–15 reps
+/* ---- расписание и шаблоны недели ---- */
+var WORKOUT_SCHEDULE = {1:'A', 3:'B', 5:'C'}; // 0=вс: Пн=A, Ср=B, Пт=C
+var WORKOUT_TEMPLATES = {
+  A: [ // Грудь + трицепс
+    {name:'Жим гантелей лёжа', n:4, start:{weight:13, sets:'12/12/12/12'}},
+    {name:'Разведение гантелей в стороны лёжа на полу', n:3, start:{weight:8.5, sets:'12/12/12'}},
+    {name:'разгибания на трицепс', n:3, start:{weight:9, sets:'12/12/12'}}
+  ],
+  B: [ // Спина + бицепс
+    {name:'Тяга гантели одной рукой', n:4, start:{weight:13, sets:'12/12/12/12'}},
+    {name:'Подтягивания прямым хватом', n:4, bw:true, start:{sets:'3/3/2/2'}},
+    {name:'подъём гантелей на бицепс', n:3, start:{weight:11, sets:'10/10/10'}}
+  ],
+  C: [ // Верх смешанный
+    {name:'Жим гантелей лёжа', n:3, start:{weight:13, sets:'10/10/10'}},
+    {name:'Тяга гантели одной рукой', n:3, start:{weight:13, sets:'10/10/10'}},
+    {name:'Подтягивания прямым хватом', n:4, bw:true, start:{sets:'3/3/2/2'}}
+  ]
+};
+var WORKOUT_DAY_TITLES = {A:'Грудь + трицепс', B:'Спина + бицепс', C:'Верх смешанный'};
+
+function isBodyweightName(n){ return /подтяг|негатив|отжим/i.test(n||''); }
+function bodyKgNow(){
+  var best = null;
+  (weightLog||[]).forEach(function(w){ if(w && w.kg > 0 && (!best || w.date > best.date)) best = w; });
+  return best ? Math.round(best.kg) : null;
+}
+function setsBroken(setsStr){
+  var a = parseSetArray(setsStr);
+  if(a.length < 2) return true; // одиночный/сорванный подход
+  return Math.min.apply(null, a) < Math.max.apply(null, a) * 0.5;
+}
+function fitSets(str, n){
+  var a = parseSetArray(str);
+  if(!a.length || !n) return str;
+  while(a.length > n) a.pop();
+  while(a.length < n) a.push(a[a.length-1]);
+  return a.join('/');
+}
+function nextTemplateCode(date){
+  for(var i=0;i<7;i++){
+    var c = WORKOUT_SCHEDULE[weekdayOf(shiftDate(date, i))];
+    if(c) return c;
+  }
+  return 'A';
+}
+
+function suggestNextSession(last, name){
+  // Двойная прогрессия: повторы 8–12, потом +вес (гантели +2 кг) и сброс повторов
   if(!last || last.weight == null) return null;
+  var bw = isBodyweightName(name || last.name);
   var sets = parseSetArray(last.sets);
   var w = last.weight;
   if(!sets.length){
-    return { weight: w, sets: '8/8/8', text: 'Начни с 3×8 на '+w+' кг, доведи до 3×12, потом +вес.' };
+    return { weight: w, sets: bw ? '3/3/2/2' : '8/8/8', text: 'Начни с '+(bw?'':w+' кг · ')+(bw?'3/3/2/2':'3×8')+', доведи до 12, потом +вес.' };
   }
-  var n = sets.length;
   var maxR = Math.max.apply(null, sets);
   var minR = Math.min.apply(null, sets);
   var allEqual = sets.every(function(r){ return r === maxR; });
-  var vol = w * sets.reduce(function(a,b){ return a+b; }, 0);
 
-  // Incomplete last set(s) → first finish the ladder
+  // Свой вес (подтягивания, негативы, отжимания): только повторы
+  if(bw){
+    var nx = sets.map(function(r){ return Math.min(15, r+1); });
+    return { weight: w, sets: nx.join('/'), text: 'Добавь по +1 повтору в каждом подходе: '+nx.join('/')+'.' };
+  }
+
+  // Все подходы ≥12 → поднимаем вес, повторы считаем по оценке 1ПМ (Эпли), цель 8–12
+  if(minR >= 12){
+    var est = w * (1 + minR/30);
+    var newW = Math.round((w + 2) * 2) / 2;
+    var r = Math.floor((est / newW - 1) * 30);
+    if(r < 8){ newW = Math.round((w + 1) * 2) / 2; r = Math.floor((est / newW - 1) * 30); }
+    r = Math.max(8, Math.min(12, r));
+    var upSets = sets.map(function(){ return r; }).join('/');
+    return {
+      weight: newW,
+      sets: upSets,
+      text: 'Пора поднять вес: '+newW+' кг · '+upSets+' (было '+w+' кг · '+last.sets+').'
+    };
+  }
+
+  // Подходы не ровные → сначала выровнять до лучшего
   if(!allEqual && minR < maxR){
-    var nextSets = sets.map(function(){ return maxR; });
-    var nextStr = nextSets.join('/');
+    var nextStr = sets.map(function(){ return maxR; }).join('/');
     return {
       weight: w,
       sets: nextStr,
@@ -849,40 +919,13 @@ function suggestNextSession(last){
     };
   }
 
-  // All sets equal
-  if(maxR < 12){
-    // add 1–2 reps, prioritize first set bump style 12/12/12 → 14/12/12 after hitting 12
-    var bumped = sets.slice();
-    bumped[0] = maxR + 2;
-    var bumpStr = bumped.join('/');
-    return {
-      weight: w,
-      sets: bumpStr,
-      text: 'Добавь повторы: '+w+' кг · '+bumpStr+'.'
-    };
-  }
-
-  // Hit 12+ all sets → either more reps on first set or add weight
-  // Compare volume: same weight +2 first set vs +2.5kg at ~10 reps
-  var optA_sets = sets.slice();
-  optA_sets[0] = maxR + 2;
-  var volA = w * optA_sets.reduce(function(a,b){ return a+b; }, 0);
-  var newW = Math.round((w + 2.5) * 2) / 2; // +2.5 kg steps
-  var optB_reps = Math.max(6, maxR - 2);
-  var optB_sets = sets.map(function(){ return optB_reps; });
-  var volB = newW * optB_sets.reduce(function(a,b){ return a+b; }, 0);
-
-  if(volB > volA * 1.02){
-    return {
-      weight: newW,
-      sets: optB_sets.join('/'),
-      text: 'Лучше поднять вес: '+newW+' кг · '+optB_sets.join('/')+' (объём '+round(volB)+' > '+round(volA)+' на текущем весе).'
-    };
-  }
+  // Ровно, но <12 → +повторы
+  var bumped = sets.slice();
+  bumped[0] = maxR + 2;
   return {
     weight: w,
-    sets: optA_sets.join('/'),
-    text: 'Объём важнее: оставь '+w+' кг · '+optA_sets.join('/')+' (объём '+round(volA)+'). Когда стабильно 3×15 — тогда +вес.'
+    sets: bumped.join('/'),
+    text: 'Добавь повторы: '+w+' кг · '+bumped.join('/')+'. Когда все подходы ≥12 — поднимем вес.'
   };
 }
 
@@ -925,7 +968,7 @@ function findTemplateTrainingDate(forDate){
 
 /**
  * Обратная связь: факт vs цель
- * → совет: +вес или +повторы
+ * → совет: +вес или +повторы (та же логика, что и у плана на следующую)
  */
 function feedbackAfterSession(done, target){
   if(!done || done.weight == null) return null;
@@ -937,7 +980,6 @@ function feedbackAfterSession(done, target){
   var dMin = Math.min.apply(null, dSets);
   var dMax = Math.max.apply(null, dSets);
   var dAll = dSets.every(function(r){ return r === dMax; });
-  var dVol = dW * dSets.reduce(function(a,b){ return a+b; }, 0);
 
   // не добил цель по повторам на том же весе
   if(tW != null && dW <= tW && tSets.length){
@@ -949,71 +991,120 @@ function feedbackAfterSession(done, target){
       };
     }
   }
-
-  // сделал все равные и ≥ цели
-  if(dAll && dMax >= 12){
-    var newW = Math.round((dW + 2.5) * 2) / 2;
-    return {
-      kind: 'weight',
-      text: 'Отлично, все подходы по '+dMax+'. Следующий раз: +вес → '+newW+' кг × примерно '+(Math.max(6, dMax-2))+'/'+(Math.max(6, dMax-2))+'/'+(Math.max(6, dMax-2))+'.'
-    };
-  }
-  if(dAll && dMax < 12){
-    var bump = dSets.slice(); bump[0] = dMax + 2;
-    return {
-      kind: 'reps',
-      text: 'Стабильно '+dMax+' во всех подходах. Дальше: '+dW+' кг · '+bump.join('/')+' (добавь повторы).'
-    };
-  }
-  // пирамида вниз
+  var next = suggestNextSession(done, done.name);
+  if(!next) return null;
+  var up = next.weight > dW;
   return {
-    kind: 'reps',
-    text: 'Сейчас '+done.sets+'. Выровняй подходы до '+dMax+' на '+dW+' кг, потом повышай вес.'
+    kind: up ? 'weight' : 'reps',
+    text: (dAll ? 'Отлично, все подходы по '+dMax+'. ' : 'Сейчас '+done.sets+'. ') + 'Следующий раз: '+next.weight+' кг · '+next.sets+'.'
   };
 }
 
-/** Автозаполнение упражнений на день по прошлой тренировке + прогрессия */
-function autoSeedWorkoutsForDate(date){
-  if(goals.workoutAuto === false) return false;
-  date = date || currentDate;
-  var existing = getWorkouts(date);
-  if(existing && existing.length) return false; // уже есть — не трогаем
-
-  var tplDate = findTemplateTrainingDate(date);
-  if(!tplDate) return false;
-  var tpl = getWorkouts(tplDate);
-  if(!tpl.length) return false;
-
-  // уникальные упражнения с последней реальной сессии
-  var seen = {};
-  var seeded = [];
-  tpl.forEach(function(w){
-    var key = (w.name||'').toLowerCase();
-    if(!key || seen[key]) return;
-    seen[key] = true;
-    var last = getLastRealSession(w.name, date) || {
-      date: tplDate, weight: w.weight, sets: w.sets, planned: w.planned, done: w.done
+/** План на одно упражнение шаблона: по последней реальной сессии, иначе стартовые значения */
+function planForExercise(item, date){
+  var last = getLastRealSession(item.name, date);
+  var next = null, fromDate = null, startNote = '';
+  if(last && last.weight != null && !setsBroken(last.sets)){
+    next = suggestNextSession(last, item.name);
+    fromDate = last.date;
+  }
+  if(!next){
+    var w = (item.start && item.start.weight != null) ? item.start.weight
+          : ((last && last.weight != null) ? last.weight : bodyKgNow());
+    startNote = last ? 'Прошлый раз подход сорван ('+last.sets+') — старт по плану: ' : 'Старт по плану: ';
+    next = {
+      weight: w,
+      sets: item.start.sets,
+      text: startNote + (item.bw ? '' : w+' кг · ') + item.start.sets + '.'
     };
-    var next = suggestNextSession(last);
-    if(!next){
-      next = { weight: w.weight, sets: w.sets || '8/8/8', text: 'Повтори прошлый результат и постарайся добавить повтор.' };
-    }
-    seeded.push({
+    fromDate = last ? last.date : null;
+  }
+  var fitted = fitSets(next.sets, item.n);
+  if(fitted !== next.sets){ next.text = next.text.replace(next.sets, fitted); next.sets = fitted; }
+  next.fromDate = fromDate;
+  return next;
+}
+
+function isAutoEmptyRow(w){
+  return !!(w && w.planned && !w.done && !(w.sets && String(w.sets).trim()) && !w.manual && (w.auto || w.fromDate));
+}
+
+function buildTemplateRows(code, date, manual){
+  var tpl = WORKOUT_TEMPLATES[code] || [];
+  return tpl.map(function(item){
+    var nx = planForExercise(item, date);
+    return {
       id: uid(),
-      name: w.name,
-      weight: next.weight,
-      sets: '', // факт пока пуст
-      targetWeight: next.weight,
-      targetSets: next.sets,
-      advice: next.text,
+      name: item.name,
+      weight: nx.weight,
+      sets: '',
+      targetWeight: nx.weight,
+      targetSets: nx.sets,
+      advice: nx.text,
       planned: true,
       done: false,
-      fromDate: last.date || tplDate
-    });
+      fromDate: nx.fromDate || null,
+      tpl: code,
+      auto: !manual,
+      manual: !!manual
+    };
   });
-  if(!seeded.length) return false;
-  saveWorkouts(date, seeded);
+}
+
+/** Ручная подстановка (кнопка): шаблон дня или ближайшего запланированного */
+function autoSeedWorkoutsForDate(date, manual){
+  date = date || currentDate;
+  var existing = getWorkouts(date);
+  if(existing && existing.length) return false;
+  var code = WORKOUT_SCHEDULE[weekdayOf(date)] || nextTemplateCode(date);
+  var rows = buildTemplateRows(code, date, !!manual);
+  if(!rows.length) return false;
+  saveWorkouts(date, rows);
   return true;
+}
+
+/** Вызывается при отрисовке дня: Пн/Ср/Пт — свежий план, остальные дни — без упражнений */
+function prepareWorkoutsForDate(date){
+  if(goals.workoutAuto === false) return;
+  date = date || currentDate;
+  var list = getWorkouts(date) || [];
+  var code = WORKOUT_SCHEDULE[weekdayOf(date)];
+  var today = todayStr();
+
+  // Не тренировочный день: убираем пустые автопланы (в т.ч. старые «вторники»)
+  if(!code){
+    if(list.some(isAutoEmptyRow)){
+      saveWorkouts(date, list.filter(function(w){ return !isAutoEmptyRow(w); }));
+    }
+    return;
+  }
+  if(date < today) return; // прошлое не трогаем
+
+  // Пусто → создаём план по шаблону дня
+  if(!list.length){
+    var rows = buildTemplateRows(code, date, false);
+    if(rows.length) saveWorkouts(date, rows);
+    return;
+  }
+  // Весь план автосгенерирован и ничего не записано → пересобираем по свежим данным
+  if(list.every(isAutoEmptyRow)){
+    var fresh = buildTemplateRows(code, date, false);
+    if(fresh.length) saveWorkouts(date, fresh);
+    return;
+  }
+  // Смешанный день: обновляем только пустые автопланы
+  var tpl = WORKOUT_TEMPLATES[code] || [];
+  var changed = false;
+  list.forEach(function(w){
+    if(!isAutoEmptyRow(w)) return;
+    var item = tpl.find(function(t){ return t.name.toLowerCase() === (w.name||'').toLowerCase(); });
+    if(!item) return;
+    var nx = planForExercise(item, date);
+    w.weight = nx.weight; w.targetWeight = nx.weight; w.targetSets = nx.sets;
+    w.advice = nx.text; w.fromDate = nx.fromDate || null; w.auto = true;
+    changed = true;
+  });
+  if(changed) saveWorkouts(date, list);
 }
 
 function collectExerciseHistory(exerciseName){
@@ -1888,12 +1979,13 @@ function renderDiaryTab(content, fab){
 
   // Workout diary for the day — автозаполнение плана с прогрессией
   if(goals.workoutAuto !== false){
-    try{ autoSeedWorkoutsForDate(currentDate); }catch(e){}
+    try{ prepareWorkoutsForDate(currentDate); }catch(e){}
   }
   var workouts = getWorkouts(currentDate);
-  html += `<div class="section-title" style="margin-top:16px;">Тренировка с железом${goals.workoutAuto!==false?' · авто':''}</div>`;
+  var _wc = WORKOUT_SCHEDULE[weekdayOf(currentDate)];
+  html += `<div class="section-title" style="margin-top:16px;">Тренировка с железом${goals.workoutAuto!==false?' · авто':''}${_wc?' · '+_wc+': '+WORKOUT_DAY_TITLES[_wc]:''}</div>`;
   if(!workouts.length){
-    html += `<div class="card"><div class="empty" style="padding:14px;">Нет упражнений за день${goals.workoutAuto!==false?'<br><span style="font-size:12px;color:var(--muted)">Авто подставит план после первой записанной тренировки</span>':''}</div>
+    html += `<div class="card"><div class="empty" style="padding:14px;">Нет упражнений за день${goals.workoutAuto!==false?'<br><span style="font-size:12px;color:var(--muted)">'+(WORKOUT_SCHEDULE[weekdayOf(currentDate)] ? 'План: день '+WORKOUT_SCHEDULE[weekdayOf(currentDate)]+' · '+WORKOUT_DAY_TITLES[WORKOUT_SCHEDULE[weekdayOf(currentDate)]] : 'День отдыха · план Пн / Ср / Пт')+'</span>':''}</div>
       <button class="btn ghost" id="addWorkoutBtn" style="width:100%;margin-top:4px;">+ Упражнение</button>
       <button class="btn ghost" id="seedWorkoutBtn" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button></div>`;
   } else {
@@ -1985,8 +2077,8 @@ function renderDiaryTab(content, fab){
   if(seedW) seedW.onclick = function(){
     var had = getWorkouts(currentDate).length > 0;
     if(had){ showToast('Уже есть упражнения — удали или редактируй'); return; }
-    var ok = autoSeedWorkoutsForDate(currentDate);
-    showToast(ok ? 'План с прогрессией добавлен' : 'Нет прошлой тренировки для шаблона');
+    var ok = autoSeedWorkoutsForDate(currentDate, true);
+    showToast(ok ? 'План с прогрессией добавлен' : 'Не удалось подставить план');
     render();
   };
 
@@ -2146,7 +2238,7 @@ function openWorkoutForm(existing){
     } else {
       var row = {id:uid(), name:name, weight: isNaN(weight) ? null : weight, sets:sets, done: !!(sets && !isNaN(weight)), planned:false};
       var last = getLastRealSession(name, currentDate);
-      var next = suggestNextSession(last || row);
+      var next = suggestNextSession(last || row, name);
       if(next && !row.done){
         row.targetWeight = next.weight;
         row.targetSets = next.sets;
@@ -2168,7 +2260,7 @@ function openWorkoutForm(existing){
 function openExerciseProgress(name){
   var hist = collectExerciseHistory(name);
   var last = hist.length ? hist[hist.length-1] : null;
-  var next = suggestNextSession(last);
+  var next = suggestNextSession(last, name);
   var nextHtml = '';
   if(next){
     nextHtml = `<div class="section-title">Цель на следующую</div>

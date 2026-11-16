@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-<title>КБЖУ — дневник</title>
+<title>КБЖУ — дневник v3</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -267,7 +267,8 @@ var exercises = []; // {id, name} library like products
 var currentDate = todayStr();
 var activeTab = 'diary';
 // Пользовательская норма: 4 км = 100 ккал
-var BIKE_KCAL_PER_KM = 25;
+var BIKE_KCAL_PER_KM = 12;
+var BIKE_KCAL_DAILY_CAP = 250;
 
 function isTrainingDay(date){
   // Тренировка = есть записанный факт; для сегодня/будущего — ещё и запланированные упражнения
@@ -308,8 +309,9 @@ function macrosFromDeficitPlan(planKcal){
 function deficitPlanKcal(){
   var maint = effectiveMaintenanceKcal();
   // −0.5 кг/нед ≈ 0.5 * 7700 / 7 ≈ 550 ккал/день
-  var deficit = Math.round((0.5 * 7700) / 7);
-  var plan = Math.round(maint - deficit);
+  // При одном дне поддержки недельный дефицит распределяется на 6 остальных дней.
+  var dailyDeficit = Math.round((0.5 * 7700) / (goals.rule8020 ? 6 : 7));
+  var plan = Math.round(maint - dailyDeficit);
   // только нижний пол: 1200; верхнего потолка нет
   if(plan < 1200) plan = 1200;
   return plan;
@@ -724,23 +726,23 @@ function parseTotalReps(setsStr){
 /* ---- расписание и шаблоны недели ---- */
 var WORKOUT_SCHEDULE = {1:'A', 3:'B', 5:'C'}; // 0=вс: Пн=A, Ср=B, Пт=C
 var WORKOUT_TEMPLATES = {
-  A: [ // Грудь + трицепс
-    {name:'Жим гантелей лёжа', n:4, start:{weight:13, sets:'12/12/12/12'}},
-    {name:'Разведение гантелей в стороны лёжа на полу', n:3, start:{weight:8.5, sets:'12/12/12'}},
-    {name:'разгибания на трицепс', n:3, start:{weight:9, sets:'12/12/12'}}
+  A: [ // Понедельник: грудь, плечи, бицепс
+    {name:'Жим штанги лёжа на полу', n:3, start:{weight:27, sets:'12/12/12'}},
+    {name:'Жим штанги стоя', n:4, start:{weight:27, sets:'8/8/8/8'}},
+    {name:'Сгибание рук со штангой', n:3, start:{weight:27, sets:'8/8/8'}}
   ],
-  B: [ // Спина + бицепс
-    {name:'Тяга гантели одной рукой', n:4, start:{weight:13, sets:'12/12/12/12'}},
-    {name:'Подтягивания прямым хватом', n:4, bw:true, start:{sets:'3/3/2/2'}},
-    {name:'подъём гантелей на бицепс', n:3, start:{weight:11, sets:'10/10/10'}}
+  B: [ // Среда: подтягивания и акцент на руки
+    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'1/1/1'}},
+    {name:'Молотковые сгибания гантелей', n:3, start:{weight:9, sets:'12/12/12'}},
+    {name:'Подъём гантелей в стороны', n:3, start:{weight:3, sets:'15/15/15'}}
   ],
-  C: [ // Верх смешанный
-    {name:'Жим гантелей лёжа', n:3, start:{weight:13, sets:'10/10/10'}},
-    {name:'Тяга гантели одной рукой', n:3, start:{weight:13, sets:'10/10/10'}},
-    {name:'Подтягивания прямым хватом', n:4, bw:true, start:{sets:'3/3/2/2'}}
+  C: [ // Пятница: грудь и бицепс
+    {name:'Жим штанги лёжа на полу', n:3, start:{weight:27, sets:'12/12/12'}},
+    {name:'Попеременное сгибание гантелей', n:3, start:{weight:9, sets:'8/8/8'}},
+    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'1/1/1'}}
   ]
 };
-var WORKOUT_DAY_TITLES = {A:'Грудь + трицепс', B:'Спина + бицепс', C:'Верх смешанный'};
+var WORKOUT_DAY_TITLES = {A:'Жим + плечи + бицепс', B:'Подтягивания + руки', C:'Грудь + бицепс'};
 
 function isBodyweightName(n){ return /подтяг|негатив|отжим/i.test(n||''); }
 function bodyKgNow(){
@@ -769,6 +771,10 @@ function nextTemplateCode(date){
 }
 
 function suggestNextSession(last, name){
+  // RIR: при 0–1 повторе в запасе не повышаем нагрузку; сначала повторить результат или немного снизить объём.
+  if(last && last.rir != null && +last.rir <= 1){
+    return {weight:last.weight, sets:last.sets || '8/8/8', text:'Подходы были почти до отказа (RIR '+last.rir+'). Не повышай вес: повтори нагрузку, сохраняя технику.'};
+  }
   // Двойная прогрессия: повторы 8–12, потом +вес (гантели +2 кг) и сброс повторов
   if(!last || last.weight == null) return null;
   var bw = isBodyweightName(name || last.name);
@@ -822,6 +828,18 @@ function suggestNextSession(last, name){
   };
 }
 
+
+function exerciseMatchKey(name){
+  var n = (name||'').toLowerCase().replace(/[ё]/g,'е').replace(/[^а-яa-z0-9]+/g,' ').trim();
+  if(/подтяг/.test(n)) return 'pullup';
+  if(/жим/.test(n) && /(полу|пол|floor)/.test(n)) return 'floorpress';
+  if(/жим/.test(n) && /(стоя|вверх|плеч)/.test(n)) return 'overheadpress';
+  if(/сгиб|подъем|подьем/.test(n) && /штанг/.test(n)) return 'barbellcurl';
+  if(/молот/.test(n)) return 'hammercurl';
+  if(/сторон/.test(n) && /(гантел|развед|подъем|подьем)/.test(n)) return 'lateralraise';
+  if(/сгиб|подъем|подьем/.test(n) && /гантел/.test(n)) return 'dumbbellcurl';
+  return n;
+}
 
 /** Последняя реальная (не только план) запись упражнения до date */
 function getLastRealSession(exerciseName, beforeDate){
@@ -1002,15 +1020,16 @@ function prepareWorkoutsForDate(date){
 
 function collectExerciseHistory(exerciseName){
   var nameLower = (exerciseName||'').toLowerCase();
+  var matchKey = exerciseMatchKey(exerciseName);
   var pts = [];
   function scanDate(date, list){
     (list||[]).forEach(function(w){
-      if((w.name||'').toLowerCase() === nameLower && w.weight != null && !isNaN(w.weight)){
+      if(((w.name||'').toLowerCase() === nameLower || exerciseMatchKey(w.name) === matchKey) && w.weight != null && !isNaN(w.weight)){
         // пропускаем чисто плановые без факта
         if(w.planned && !w.done && !(w.sets && String(w.sets).trim())) return;
         var reps = parseTotalReps(w.sets||'');
         var volume = w.weight * (reps > 0 ? reps : 1);
-        pts.push({date:date, weight:w.weight, sets:w.sets||'', reps:reps, volume:volume, planned:!!w.planned, done:!!w.done});
+        pts.push({date:date, weight:w.weight, sets:w.sets||'', reps:reps, volume:volume, rir:w.rir==null?null:+w.rir, planned:!!w.planned, done:!!w.done});
       }
     });
   }
@@ -1032,15 +1051,9 @@ function collectExerciseHistory(exerciseName){
     }
   }catch(e){}
   pts.sort(function(a,b){ return a.date.localeCompare(b.date); });
-  // one point per date — best volume that day (or max weight if volumes equal)
-  var byDate = {};
-  pts.forEach(function(p){
-    if(!byDate[p.date] || p.volume > byDate[p.date].volume ||
-       (p.volume === byDate[p.date].volume && p.weight > byDate[p.date].weight)){
-      byDate[p.date] = p;
-    }
-  });
-  return Object.keys(byDate).sort().map(function(d){ return byDate[d]; });
+  // Сохраняем все записи, включая несколько рабочих подходов/вариантов за день.
+  // Для графика сортируем по дате и объёму, не скрывая слабые подходы.
+  return pts.sort(function(a,b){ return a.date.localeCompare(b.date) || a.volume-b.volume; });
 }
 
 function exerciseProgressSvg(history){
@@ -1146,7 +1159,7 @@ function saveWorkouts(date, list){
 }
 function bikeKcalFromKm(km){
   km = parseFloat(km) || 0;
-  return Math.round(km * BIKE_KCAL_PER_KM * 10) / 10;
+  return Math.min(BIKE_KCAL_DAILY_CAP, Math.round(km * BIKE_KCAL_PER_KM * 10) / 10);
 }
 function getBike(date){
   date = date || currentDate;
@@ -1291,6 +1304,17 @@ function migrateDiarySnapshots(){
     if(ch) saveDiary(d, list);
   });
 }
+function foodDataWarnings(item){
+  var warnings=[];
+  var kcal=+item.kcal||0, p=+item.protein||0, f=+item.fat||0, c=+item.carbs||0;
+  if(kcal<0||p<0||f<0||c<0) warnings.push('Макросы не могут быть отрицательными');
+  var calc=p*4+f*9+c*4;
+  if(kcal>0 && calc>0 && Math.abs(kcal-calc)>Math.max(80,kcal*0.25)) warnings.push('Калорийность заметно расходится с БЖУ');
+  if(kcal>950) warnings.push('Проверь калорийность на 100 г: значение очень высокое');
+  if(p>100||f>100||c>100||p+f+c>110) warnings.push('Проверь БЖУ на 100 г');
+  return warnings;
+}
+
 function computeTotals(entries){
   var t = {kcal:0, protein:0, fat:0, carbs:0, fiber:0, veg:0, fruit:0};
   entries.forEach(function(e){
@@ -1349,9 +1373,9 @@ function diversityTips(div){
   if(div.avgVeg < 200) tips.push({ type:'warn', text: 'За неделю овощей мало (~'+round(div.avgVeg)+' г/день). В план на следующие дни: 300–400 г (огурец, томаты, капуста, брокколи).' });
   if(div.avgFruit < 100) tips.push({ type:'info', text: 'Фруктов/ягод ~'+round(div.avgFruit)+' г/день. На ближайшие дни заложите 150–200 г (яблоко, мандарин, ягоды).' });
   if(div.avgFiber < 20) tips.push({ type:'warn', text: 'Клетчатка в среднем ~'+round(div.avgFiber)+' г/день (цель 25–30). Планируйте овсянку, гречку, овощи, бобовые заранее, не в конце дня.' });
-  if(div.groupCount < 4) tips.push({ type:'info', text: 'Узкий набор групп ('+div.groupCount+'/5). На неделю заложите чередование: белок, крупы, овощи, фрукты, молочное.' });
-  if(div.unique < 12) tips.push({ type:'info', text: 'За неделю всего '+div.unique+' разных продуктов. В списке покупок добавьте 2–3 новых позиции на неделю.' });
-  if(div.score >= 70) tips.push({ type:'info', text: 'Разнообразие хорошее (индекс '+div.score+'/100). Держите тот же подход в плане на неделю.' });
+  if(div.groupCount < 4) tips.push({ type:'info', text: 'Узкий набор групп ('+div.groupCount+'/5). Постепенно добавляйте продукты из недостающих групп.' });
+  if(div.unique < 12) tips.push({ type:'info', text: 'За неделю было '+div.unique+' разных продуктов. Можно постепенно расширять набор продуктов.' });
+  if(div.avgFiber >= 25 && div.avgVeg >= 200 && div.avgFruit >= 100) tips.push({ type:'info', text: 'Средние показатели клетчатки, овощей и фруктов за неделю достигнуты.' });
   return tips;
 }
 
@@ -1522,7 +1546,7 @@ function renderReceipt(){
   const overC = t.carbs > base.carbs;
   const el = document.getElementById('receipt');
   var bikeNote = bikeBurn > 0
-    ? '<div style="text-align:center;font-size:12px;color:var(--green);margin:2px 0 4px;">🚴 −'+round(bikeBurn)+' ккал вело · нетто '+round(netKcal)+'</div>'
+    ? '<div style="text-align:center;font-size:12px;color:var(--green);margin:2px 0 4px;">🚴 оценка вело −'+round(bikeBurn)+' ккал · отдельно от базовой нормы · нетто '+round(netKcal)+'</div>'
     : '';
   var fiberGoal = goals.fiberTarget || 28;
   var vfGoal = goals.vegFruitTarget || 500;
@@ -1721,8 +1745,8 @@ function renderDiaryTab(content, fab){
       <div style="flex:1;">
         <div style="font-weight:600;font-size:14.5px;">🚴 Велотренажёр</div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px;">${bike
-          ? (bike.km+' км · −'+round(bike.kcal)+' ккал (4 км = 100 ккал)')
-          : 'Не записано · 4 км = 100 ккал'}</div>
+          ? (bike.km+' км · −'+round(bike.kcal)+' ккал (оценка, лимит 250 ккал)')
+          : 'Не записано · 12 ккал/км, лимит 250 ккал'}</div>
       </div>
       <button class="btn ${bike?'ghost':'primary'}" id="bikeBtn" style="padding:8px 14px;font-size:13px;white-space:nowrap;">${bike?'Изменить':'Добавить'}</button>
     </div>
@@ -1736,6 +1760,16 @@ function renderDiaryTab(content, fab){
     });
     html += adjNote + creatHtml + bikeHtml + `<div class="card">${sortedEntries.map(entryRow).join('')}</div>`;
   }
+
+  // Белковый план: сколько осталось и как распределить по оставшимся приёмам.
+  var proteinGoal = g.protein || 150;
+  var proteinLeft = Math.max(0, proteinGoal - dayTot.protein);
+  var mealCountDone = entries.length ? Object.keys(entries.reduce(function(a,e){a[e.meal||'other']=1;return a;},{})).length : 0;
+  var mealSlotsLeft = Math.max(1, 4 - mealCountDone);
+  html += `<div class="section-title">План белка на сегодня</div><div class="card" style="padding:12px 14px;">
+    <div class="entry"><div class="name">Осталось до цели</div><div class="kcal">${round(proteinLeft)} г из ${round(proteinGoal)} г</div></div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.45;margin-top:5px;">${proteinLeft>0?'Ориентир — около '+round(proteinLeft/mealSlotsLeft)+' г за каждый из '+mealSlotsLeft+' оставшихся приёмов. Если приёмов больше не планируется, не нужно заставлять себя есть перед сном.':'Цель по белку выполнена.'}</div>
+  </div>`;
 
   // Workout diary for the day — автозаполнение плана с прогрессией
   if(goals.workoutAuto !== false){
@@ -1861,7 +1895,7 @@ function openBikeForm(){
       <div class="sheet">
         <h2>Велотренажёр</h2>
         <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px;line-height:1.45;">
-          4 км = 100 ккал к дефициту дня (25 ккал/км). Учитывается в нетто и прогнозе веса.
+          Учитываем консервативно: 12 ккал/км, не более 250 ккал в день. Это приблизительная оценка, а не точное измерение расхода.
         </div>
         <div class="field"><label>Километры</label><input id="bikeKm" type="number" inputmode="decimal" step="0.1" placeholder="8" value="${existing && existing.km ? existing.km : ''}"></div>
         <div id="bikePreview" style="font-size:14px;font-weight:600;margin:4px 0 12px;color:var(--green);"></div>
@@ -1938,13 +1972,16 @@ function openWorkoutForm(existing){
         <div class="search-list" id="woResults" style="max-height:140px;"></div>
         <div class="field" style="margin-top:10px;"><label>Факт: вес, кг</label><input id="woWeight" type="number" inputmode="decimal" step="0.5" placeholder="13" value="${factW}"></div>
         <div class="field"><label>Факт: подходы / повторы</label><input id="woSets" type="text" placeholder="20/20/15" value="${factS}"></div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">После сохранения будет совет: +вес или +повторы.</div>
+        <div class="field"><label>Запас повторений (RIR)</label><select id="woRir"><option value="">Не указано</option><option value="0">0 — отказ</option><option value="1">1 — очень тяжело</option><option value="2">2 — тяжело, но контролируемо</option><option value="3">3 — умеренно</option><option value="4">4+ — легко</option></select></div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">RIR — сколько повторений ещё мог бы сделать с правильной техникой. При 0–1 приложение не предложит повышать вес.</div>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
           <button class="btn primary" id="saveBtn">Сохранить факт</button>
         </div>
       </div>
     </div>`;
+  var rirEl = document.getElementById('woRir');
+  if(rirEl && existing && existing.rir != null) rirEl.value = String(existing.rir);
   var searchEl = document.getElementById('woSearch');
   var resultsEl = document.getElementById('woResults');
   function renderExResults(q){
@@ -1987,6 +2024,7 @@ function openWorkoutForm(existing){
       existing.name = name;
       existing.weight = isNaN(weight) ? null : weight;
       existing.sets = sets;
+      existing.rir = rirEl && rirEl.value !== '' ? +rirEl.value : null;
       existing.done = !!(sets && !isNaN(weight));
       existing.planned = existing.planned || false;
       var fb = feedbackAfterSession(existing, {
@@ -1996,7 +2034,7 @@ function openWorkoutForm(existing){
       existing.feedback = fb ? fb.text : '';
       if(fb) showToast(fb.kind === 'weight' ? 'Следующий шаг: +вес' : 'Следующий шаг: +повторы');
     } else {
-      var row = {id:uid(), name:name, weight: isNaN(weight) ? null : weight, sets:sets, done: !!(sets && !isNaN(weight)), planned:false};
+      var row = {id:uid(), name:name, weight: isNaN(weight) ? null : weight, sets:sets, rir:rirEl && rirEl.value !== '' ? +rirEl.value : null, done: !!(sets && !isNaN(weight)), planned:false};
       var last = getLastRealSession(name, currentDate);
       var next = suggestNextSession(last || row, name);
       if(next && !row.done){
@@ -2038,6 +2076,11 @@ function openExerciseProgress(name){
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">График по объёму: вес × сумма повторов (рост повторов при том же весе тоже виден)</div>
         <div class="card" style="padding:8px;">${exerciseProgressSvg(hist)}</div>
         ${nextHtml}
+        <div class="card" style="margin-top:10px;padding:10px 12px;">
+          <div class="entry"><div class="name">Лучший объём</div><div class="kcal">${hist.length ? hist.reduce(function(a,b){return b.volume>a.volume?b:a;},hist[0]).weight+' кг · '+hist.reduce(function(a,b){return b.volume>a.volume?b:a;},hist[0]).sets : '—'}</div></div>
+          <div class="entry"><div class="name">Последняя тренировка</div><div class="kcal">${last ? last.weight+' кг · '+(last.sets||'') : '—'}</div></div>
+          <div class="entry"><div class="name">За последние 30 дней</div><div class="kcal">${hist.filter(function(h){return h.date>=shiftDate(todayStr(),-29);}).length} тренировок</div></div>
+        </div>
         <div class="section-title">История</div>
         <div class="card" style="max-height:35vh;overflow-y:auto;">
           ${hist.length ? hist.slice().reverse().map(function(h){
@@ -2303,7 +2346,7 @@ var KCAL_PER_KG = 7700;
 
 function avgIntakeLastDays(n){
   // n = null → all diary days with food
-  // нетто = еда − вело (учитываем расход к поддержанию)
+  // условное нетто = еда − оценка вело (учитываем расход к поддержанию)
   var total = 0, daysWithData = 0;
   if(n == null){
     var dates = collectDiaryDates();
@@ -2360,23 +2403,32 @@ function estimateMaintenanceKcal(){
         foodDays++;
       }
     }
-    if(foodDays < Math.max(7, Math.ceil(daysBack * 0.5))) return null;
+    // Требуем не менее 80% дней с записью, чтобы неполный дневник меньше смещал оценку.
+    var minFoodDays = daysBack >= 28 ? 24 : 12;
+    if(foodDays < minFoodDays) return null;
     var avgIntake = totalK / foodDays;
 
     var wStart = shiftDate(start, -3);
     var weights = sortedW.filter(function(w){ return w.date >= wStart && w.date <= end; });
-    if(weights.length < 2) return null;
+    var minWeights = daysBack >= 28 ? 4 : 3;
+    if(weights.length < minWeights) return null;
     var w0 = weights[0], w1 = weights[weights.length - 1];
     var spanDays = daysBetween(w0.date, w1.date);
-    if(spanDays < 7) return null;
+    if(spanDays < (daysBack >= 28 ? 21 : 10)) return null;
 
-    var deltaKgRaw = w1.kg - w0.kg;
-    // кап скорости: быстрее 0.75 кг/нед почти наверняка вода, не трогаем формулу полностью
+    // Линейный тренд по всем взвешиваниям вместо разницы двух крайних точек.
+    // Это снижает влияние разовых скачков воды и соли.
+    var x0 = dateToMs(w0.date), sumX = 0, sumY = 0, sumXX = 0, sumXY = 0;
+    weights.forEach(function(w){
+      var x = daysBetween(w0.date, w.date);
+      sumX += x; sumY += +w.kg; sumXX += x*x; sumXY += x*(+w.kg);
+    });
+    var nW = weights.length, denom = nW*sumXX - sumX*sumX;
+    if(!denom) return null;
+    var slopeKgDay = (nW*sumXY - sumX*sumY) / denom;
+    var deltaKgRaw = slopeKgDay * spanDays;
     var maxAbs = 0.75 * (spanDays / 7);
-    var deltaKg = deltaKgRaw;
-    if(deltaKg > maxAbs) deltaKg = maxAbs;
-    if(deltaKg < -maxAbs) deltaKg = -maxAbs;
-
+    var deltaKg = Math.max(-maxAbs, Math.min(maxAbs, deltaKgRaw));
     var dailyBal = (deltaKg * KCAL_PER_KG) / spanDays;
     var maint = avgIntake - dailyBal;
     if(!isFinite(maint)) return null;
@@ -2391,7 +2443,10 @@ function estimateMaintenanceKcal(){
       deltaKg: round(deltaKgRaw),
       deltaUsed: round(deltaKg),
       maint: round(maint),
-      weight: wgt
+      weight: wgt,
+      weightCount: weights.length,
+      foodCoverage: foodDays / daysBack,
+      weightMethod: 'linear-trend' 
     };
   }
 
@@ -2401,9 +2456,10 @@ function estimateMaintenanceKcal(){
   if(e14) parts.push(e14);
   if(e30) parts.push(e30);
 
-  // Одного среднего потребления недостаточно, чтобы назвать его поддержанием.
-  // Если нет достаточной динамики веса, возвращаем null и используем ручной резерв.
-  if(!parts.length) return null;
+  // Автооценка требует полноценного 30-дневного окна: минимум 24 дня питания,
+  // 4 взвешивания и не менее 21 дня между крайними измерениями. Короткое окно
+  // само по себе не переключает автоматическую цель на нестабильную оценку.
+  if(!e30) return null;
 
   var sumW = 0, sumM = 0;
   parts.forEach(function(p){ sumW += p.weight; sumM += p.maint * p.weight; });
@@ -2429,7 +2485,9 @@ function estimateMaintenanceKcal(){
     return p.daysBack+'д: приём ~'+p.avgIntake+', Δ'+p.deltaKg+' кг → ~'+p.maint+note;
   }).join(' · ');
   detail += ' → итог '+kcal;
-  return { kcal: kcal, source: 'weight+intake', confidence: parts.length >= 2 ? 'high' : 'medium', detail: detail, windows: parts };
+  var confidence = 'medium';
+  if(e14 && Math.abs(e14.maint - e30.maint) <= 250 && e30.foodCoverage >= 0.8 && e30.weightCount >= 6) confidence = 'high';
+  return { kcal: kcal, source: 'weight+intake', confidence: confidence, detail: detail, windows: parts, foodDays30:e30.foodDays, weightCount30:e30.weightCount, spanDays30:e30.spanDays };
 }
 
 /** Актуальная поддержка: авто-оценка или ручной ввод */
@@ -2497,13 +2555,15 @@ function projectWeightDate(){
   var wall = avgIntakeLastDays(null);
 
   var plannedDeficit = maint - goals.kcal;
+  // Средний дефицит за неделю с одним днём поддержки.
+  var plannedWeeklyDailyDeficit = goals.rule8020 ? plannedDeficit * 6 / 7 : plannedDeficit;
   var planned = null;
   if(target < current){
-    if(plannedDeficit > 50){
-      var pd = (current - target) * KCAL_PER_KG / plannedDeficit;
-      planned = { date: fmtFutureDate(pd), days: pd, avg: goals.kcal, deficit: round(plannedDeficit) };
+    if(plannedWeeklyDailyDeficit > 50){
+      var pd = (current - target) * KCAL_PER_KG / plannedWeeklyDailyDeficit;
+      planned = { date: fmtFutureDate(pd), days: pd, avg: goals.rule8020 ? round((goals.kcal * 6 + maint) / 7) : goals.kcal, deficit: round(plannedWeeklyDailyDeficit) };
     } else {
-      planned = { date: 'нужен больший дефицит', days: null, avg: goals.kcal, deficit: round(plannedDeficit) };
+      planned = { date: 'нужен больший дефицит', days: null, avg: goals.rule8020 ? round((goals.kcal * 6 + maint) / 7) : goals.kcal, deficit: round(plannedWeeklyDailyDeficit) };
     }
   } else if(target > current){
     planned = { date: 'цель выше текущего — это набор', days: null };
@@ -2574,8 +2634,8 @@ function weeklyWeightPace(offset){
   if(pair.newer.avg == null || pair.older.avg == null) return null;
   return {
     delta: pair.newer.avg - pair.older.avg,
-    newer: pair.newer,
-    older: pair.older,
+    newer: Object.assign({}, pair.newer, {n: sorted.filter(function(w){return w.date>=pair.newer.start && w.date<=pair.newer.end;}).length}),
+    older: Object.assign({}, pair.older, {n: sorted.filter(function(w){return w.date>=pair.older.start && w.date<=pair.older.end;}).length}),
     safeMax: safeMaxWeeklyLossKg()
   };
 }
@@ -2768,6 +2828,20 @@ function renderWeightTab(content, fab, append){
 
 
   var weekHtml = buildWeekPairHtml(sorted);
+  var paceNow = weeklyWeightPace(0);
+  var trendHtml = '';
+  if(paceNow){
+    var paceAbs = Math.abs(paceNow.delta);
+    var trendLabel = paceNow.delta < -0.05 ? 'Вес снижается' : (paceNow.delta > 0.05 ? 'Вес растёт' : 'Вес стабилен');
+    var paceText = (paceNow.delta > 0 ? '+' : '') + round(paceNow.delta) + ' кг за неделю';
+    var enoughTrend = paceNow.newer && paceNow.older && paceNow.newer.n >= 3 && paceNow.older.n >= 3;
+    var targetPace = goals.autoFromWeight ? 0.5 : null;
+    var trendHint = !enoughTrend ? 'Нужно минимум 3 взвешивания в каждой неделе для уверенного вывода.' :
+      (paceAbs < 0.1 ? 'Пока нет заметного изменения. Сначала проверь полноту записей и повтори оценку через неделю.' :
+      (paceNow.delta < 0 && paceAbs <= paceNow.safeMax ? 'Темп не превышает безопасный предел.' :
+      (paceNow.delta < 0 ? 'Снижение быстрее безопасного ориентира — проверь самочувствие и полноту данных.' : 'Рост веса оценивай по средней за неделю, а не по одному взвешиванию.')));
+    trendHtml = '<div class="section-title">Тренд веса за неделю</div><div class="card"><div class="entry"><div class="name">'+trendLabel+'</div><div class="kcal">'+paceText+'</div></div><div style="font-size:12px;color:var(--muted);line-height:1.4;">'+trendHint+'</div></div>';
+  }
 
   // jump flags for list
   function jumpFlag(w, prev){
@@ -2804,7 +2878,7 @@ function renderWeightTab(content, fab, append){
     projHtml = `<div class="card">
       <div class="entry"><div class="name">Сейчас</div><div class="kcal">${proj.current} кг</div></div>
       <div class="entry"><div class="name">Цель</div><div class="kcal">${proj.target} кг (${kgSign} кг)</div></div>
-      <div class="entry"><div class="name">По плану (${goals.kcal} ккал)</div><div class="kcal" style="font-size:13px;">${proj.planned ? proj.planned.date : '—'}</div></div>
+      <div class="entry"><div class="name">По плану (среднее ${proj.planned && proj.planned.avg != null ? proj.planned.avg : goals.kcal} ккал/день)</div><div class="kcal" style="font-size:13px;">${proj.planned ? proj.planned.date : '—'}</div></div>
       <div style="font-size:12px;color:var(--muted);margin:10px 0 4px;font-weight:600;">По факту питания → дата цели</div>
       ${lineFact('За 7 дней', proj.week, proj.avg7)}
       ${lineFact('За 30 дней', proj.month, proj.avg30)}
@@ -2840,6 +2914,7 @@ function renderWeightTab(content, fab, append){
       </div>
       <div id="periodResult" style="margin-top:12px;"></div>
     </div>
+    ${trendHtml}
     <div class="section-title">Динамика веса</div>${chart || '<div class="empty" style="padding:20px;">Добавь минимум 2 записи для графика</div>'}
     <div class="section-title" id="weightLogToggle" style="cursor:pointer;user-select:none;">Записи веса ${rev.length?'('+rev.length+') · нажми, чтобы '+(window._weightLogOpen?'свернуть':'развернуть'):''}</div>
     <div class="card" id="weightLogList" style="${window._weightLogOpen?'':'display:none'}">${rev.length ? rev.map(function(w){
@@ -3145,6 +3220,17 @@ function openWeightGoalForm(){
   };
 }
 
+function muscleGroupForExercise(name){
+  var n=(name||'').toLowerCase();
+  if(/бицепс|сгиб|молот|подтяг/.test(n)) return /подтяг/.test(n)?'Спина / подтягивания':'Бицепс';
+  if(/развод|подъем.*сторон|подъём.*сторон|махи.*сторон/.test(n)) return 'Средняя дельта';
+  if(/жим.*стоя|жим.*вверх|армейск/.test(n)) return 'Плечи';
+  if(/жим|отжим/.test(n)) return 'Грудь / трицепс';
+  if(/присед|выпад|румын|станов|икр/.test(n)) return 'Ноги';
+  if(/тяга|греб|развод.*наклон/.test(n)) return 'Спина';
+  return 'Другое';
+}
+
 function renderReportTab(content, fab){
   fab.innerHTML = '';
   const days = [];
@@ -3197,13 +3283,28 @@ function renderReportTab(content, fab){
       }
     });
   }
+  var weeklySetCount = 0, weeklyExerciseCounts = {}, muscleSets = {}, rirValues=[];
+  days.forEach(function(d){ getWorkouts(d).forEach(function(w){
+    if(w.sets && (w.done || (w.weight!=null && String(w.sets).trim()))){
+      var m=String(w.sets).match(/\d+/g); var count=m ? m.length : 1; weeklySetCount += count;
+      var key=w.name||'Упражнение'; weeklyExerciseCounts[key]=(weeklyExerciseCounts[key]||0)+count;
+      var grp=muscleGroupForExercise(key); muscleSets[grp]=(muscleSets[grp]||0)+count;
+      if(w.rir!=null && isFinite(+w.rir)) rirValues.push(+w.rir);
+    }
+  }); });
+  var groupLine=Object.keys(muscleSets).sort(function(a,b){return muscleSets[b]-muscleSets[a];}).map(function(k){return k+': '+muscleSets[k];}).join(' · ');
+  var avgRir=rirValues.length?round(rirValues.reduce(function(a,b){return a+b;},0)/rirValues.length):null;
   var trainingSummaryHtml = '<div class="section-title">Тренировки за 7 дней</div><div class="card">'+
-    '<div class="entry"><div class="name">Тренировочных дней</div><div class="kcal">'+trainingDays.length+' / 7</div></div>'+
+    '<div class="entry"><div class="name">Тренировочных дней</div><div class="kcal">'+trainingDays.length+' / 7</div></div>'+ 
+    '<div class="entry"><div class="name">Рабочих подходов (по записанным повторам)</div><div class="kcal">'+weeklySetCount+'</div></div>'+ 
+    (groupLine?'<div style="font-size:12px;color:var(--muted);padding:6px 0;line-height:1.5;">По группам: '+groupLine+'</div>':'')+
+    '<div class="entry"><div class="name">Средний RIR по отмеченным подходам</div><div class="kcal">'+(avgRir==null?'—':avgRir+' ('+rirValues.length+' записей)')+'</div></div>'+
+    (function(){var ph=collectExerciseHistory('Подтягивания обратным хватом');var pl=ph.length?ph[ph.length-1]:null;return '<div class="entry"><div class="name">Подтягивания · последняя запись</div><div class="kcal">'+(pl?(pl.sets||'записано')+' · '+fmtDateHuman(pl.date):'пока нет данных')+'</div></div>'+(pl?'<div style="font-size:12px;color:var(--muted);padding:4px 0 8px;">Цель — постепенно увеличить качественные повторы; негативы и висы тоже можно записывать отдельными упражнениями.</div>':'');})()+
     (recentExerciseFacts.length ? recentExerciseFacts.map(function(x){ return '<div class="entry"><div class="name">'+x.name+'<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+fmtDateHuman(x.date)+'</div></div><div class="kcal">'+x.weight+' кг<div style="font-size:11px;color:var(--muted);">'+x.sets+'</div></div></div>'; }).join('') : '<div style="font-size:12px;color:var(--muted);padding:8px 0;">Пока нет записанных результатов</div>')+
     '</div>';
   content.innerHTML = `
     <div class="section-title">Среднее за 7 дней</div>
-    <div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Включая сегодня · нетто = еда − вело${avgBike?(' · вело ~'+avgBike+' ккал/д'):''}</div>
+    <div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Включая сегодня · заполнено ${withData.length} из 7 дней · средние рассчитаны только по дням с едой (неизвестные дни не считаются нулём) · условное нетто = еда − оценка вело${avgBike?(' · вело ~'+avgBike+' ккал/д'):''}</div>
     <div class="stat-grid">
       <div class="stat"><div class="slab">Ср. вес (эта нед.)</div><div class="sval">${avgWthis!=null?round(avgWthis):'—'} кг${wWeekDelta!=null?'<div style="font-size:11px;font-weight:400;color:'+(wWeekDelta>0.05?'var(--red)':(wWeekDelta<-0.05?'var(--green)':'var(--muted)'))+';margin-top:2px;">к пред. '+(wWeekDelta>0?'+':'')+wWeekDelta+' кг</div>':(avgWprev!=null?'<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:2px;">пред. '+round(avgWprev)+' кг</div>':'')}</div></div>
       <div class="stat"><div class="slab">Средние нетто ккал</div><div class="sval" style="${overStyle(avgKcal, gKcal)}">${avgKcal}<div style="font-size:11px;font-weight:400;color:var(--muted);margin-top:2px;">цель ~${gKcal}</div></div></div>
@@ -3234,6 +3335,27 @@ function renderReportTab(content, fab){
         ? `<div class="entry"><div class="name">Изменение за период записей</div><div class="kcal">${wDelta>0?'+':''}${wDelta} кг</div></div>`
         : '<div class="empty">Недостаточно данных о весе</div>'}
     </div>
+    <div class="section-title">Темп снижения веса</div>
+    <div class="card">${(function(){
+      var a=avgWeightInRange(shiftDate(todayStr(),-20),todayStr());
+      var b=avgWeightInRange(shiftDate(todayStr(),-41),shiftDate(todayStr(),-21));
+      if(!a||!b||a.n<3||b.n<3) return '<div class="empty">Для оценки темпа нужно хотя бы по 3 взвешивания в каждом из двух периодов по 21 дню.</div>';
+      var pace=round((b.avg-a.avg)/3);
+      var txt=pace>0.8?'Темп высокий. Проверь восстановление, самочувствие и достаточность питания.':(pace>0.65?'Темп выше умеренного — следи за силовыми и восстановлением.':'Темп умеренный или низкий.');
+      return '<div class="entry"><div class="name">Изменение в неделю (по средним весам)</div><div class="kcal">'+(pace>0?'-':' +')+Math.abs(pace)+' кг</div></div><div style="font-size:12px;color:var(--muted);line-height:1.45;">'+txt+' Это ориентир по двум трёхнедельным средним, а не точное изменение жира.</div>';
+    })()}</div>
+    <div class="section-title">Сохранение мышц · контроль динамики</div>
+    <div class="card">${(function(){
+      var ms = (measureLog||[]).slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+      var latest = ms.length ? ms[ms.length-1] : null;
+      var prev = ms.length>1 ? ms[ms.length-2] : null;
+      function metric(k,label){
+        if(!latest || latest[k]==null || latest[k]==='') return '';
+        var d = prev && prev[k]!=null && prev[k]!=='' ? round(+latest[k]-(+prev[k])) : null;
+        return '<div class="entry"><div class="name">'+label+'</div><div class="kcal">'+latest[k]+' см'+(d!==null?' <span style="font-size:11px;color:var(--muted);">('+(d>0?'+':'')+d+')</span>':'')+'</div></div>';
+      }
+      return latest ? '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Последние замеры · '+fmtDateHuman(latest.date)+'</div>'+metric('waist','Талия')+metric('bicepL','Левая рука')+metric('bicepR','Правая рука')+metric('chest','Грудь') : '<div class="empty">Добавь замеры талии и рук во вкладке веса. Силовые показатели смотри в блоке тренировок выше.</div>';
+    })()}</div>
     <div class="section-title">Дневная цель (нажми, чтобы изменить)</div>
     <div class="card" id="goalsCard">
       <div class="entry"><div class="name">Калории</div><div class="kcal">${reportGoal.kcal}</div></div>
@@ -3246,11 +3368,13 @@ function renderReportTab(content, fab){
       var groupsLine = ['veg','fruit','grain','protein','dairy'].map(function(k){
         return gLabels[k]+': '+(div.groups[k]||0);
       }).join(' · ');
-      return '<div class="section-title">Разнообразие за 7 дней</div><div class="card">'+
-        '<div class="entry"><div class="name">Индекс разнообразия</div><div class="kcal" style="font-weight:700;">'+div.score+'/100</div></div>'+
+      return '<div class="section-title">Качество рациона · среднее за 7 дней</div><div class="card">'+
+        '<div class="entry"><div class="name">Разных продуктов за неделю</div><div class="kcal" style="font-weight:700;">'+div.unique+'</div></div>'+
         '<div class="entry"><div class="name">Уникальных продуктов</div><div class="kcal">'+div.unique+'</div></div>'+
-        '<div class="entry"><div class="name">Ср. клетчатка</div><div class="kcal">'+round(div.avgFiber)+' г</div></div>'+
-        '<div class="entry"><div class="name">Ср. овощи / фрукты</div><div class="kcal" style="font-size:13px;">'+round(div.avgVeg)+' / '+round(div.avgFruit)+' г</div></div>'+
+        '<div class="entry"><div class="name">Клетчатка (цель 25–30 г)</div><div class="kcal">'+round(div.avgFiber)+' г</div></div>'+
+        '<div class="entry"><div class="name">Овощи / фрукты</div><div class="kcal" style="font-size:13px;">'+round(div.avgVeg)+' / '+round(div.avgFruit)+' г</div></div>'+
+        '<div class="entry"><div class="name">Жиры (ориентир ≥40 г)</div><div class="kcal">'+(weeklyMacroAverages(todayStr(),7) ? round(weeklyMacroAverages(todayStr(),7).fat)+' г' : '—')+'</div></div>'+
+        '<div class="entry"><div class="name">Белок</div><div class="kcal">'+(weeklyMacroAverages(todayStr(),7) ? round(weeklyMacroAverages(todayStr(),7).protein)+' г' : '—')+'</div></div>'+
         '<div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;">'+groupsLine+'</div>'+
       '</div>';
     })()}
@@ -3287,7 +3411,7 @@ function buildDietSummaryForAI(){
   var div = dietDiversity(7);
   var lines = [];
   lines.push('Цели: '+goals.kcal+' ккал, Б'+goals.protein+' Ж'+goals.fat+' У'+goals.carbs+', клетчатка '+ (goals.fiberTarget||28)+' г, овощи+фрукты '+(goals.vegFruitTarget||500)+' г.');
-  lines.push('За 7 дней: уникальных продуктов '+div.unique+', индекс разнообразия '+div.score+'/100.');
+  lines.push('За 7 дней: разных продуктов '+div.unique+'.');
   lines.push('Средние: клетчатка '+round(div.avgFiber)+' г, овощи '+round(div.avgVeg)+' г, фрукты '+round(div.avgFruit)+' г.');
   lines.push('Группы (число записей): овощи '+(div.groups.veg||0)+', фрукты '+(div.groups.fruit||0)+', крупы '+(div.groups.grain||0)+', белок '+(div.groups.protein||0)+', молочное '+(div.groups.dairy||0)+'.');
   lines.push('Продукты: '+(div.productNames.slice(0,40).join(', ')||'нет данных')+(div.productNames.length>40?'…':''));
@@ -3362,7 +3486,7 @@ function collectAllData(){
     }
   }catch(e){}
   return {
-    version: 1,
+    version: 2,
     products: products,
     goals: goals,
     weightLog: weightLog,
@@ -3411,54 +3535,51 @@ function importData(ev){
   reader.onload = function(){
     try{
       var data = JSON.parse(reader.result);
-      if(!data || typeof data !== 'object') throw new Error('bad');
-      if(data.products && data.products.length) products = data.products;
-      if(data.goals) goals = data.goals;
-      if(data.weightLog) weightLog = data.weightLog;
-      if(data.measureLog) measureLog = data.measureLog;
-      if(data.creatineLog) creatineLog = data.creatineLog;
-      if(data.favorites) favorites = data.favorites;
-      if(data.trainingDays) trainingDays = data.trainingDays;
-      if(data.exercises) exercises = data.exercises;
-      sSet('products', products);
-      sSet('goals', goals);
-      sSet('weightLog', weightLog);
-      sSet('measureLog', measureLog);
-      sSet('creatineLog', creatineLog);
-      sSet('favorites', favorites);
-      sSet('trainingDays', trainingDays);
-      sSet('exercises', exercises);
-      diaryCache = {};
-      if(data.diary){
-        Object.keys(data.diary).forEach(function(date){
-          var entries = data.diary[date] || [];
-          diaryCache[date] = entries;
-          sSet('diary:'+date, entries);
+      if(!data || typeof data !== 'object' || Array.isArray(data) || (data.version!=null && +data.version>2)) throw new Error('bad backup');
+      var arrayKeys = ['products','weightLog','measureLog','favorites','exercises'];
+      arrayKeys.forEach(function(k){ if(data[k] != null && !Array.isArray(data[k])) throw new Error('bad '+k); });
+      ['diary','workouts','bike','goals','creatineLog','trainingDays','mealPlan','shopChecked','inventory'].forEach(function(k){
+        if(data[k] != null && (typeof data[k] !== 'object' || Array.isArray(data[k]) && !['diary','workouts','bike'].includes(k))) throw new Error('bad '+k);
+      });
+      ['diary','workouts','bike'].forEach(function(k){
+        if(data[k]) Object.keys(data[k]).forEach(function(d){
+          if(!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(data[k][d]) && k!=='bike') throw new Error('bad date data');
         });
+      });
+      // Снимок ключей localStorage позволяет откатить импорт при ошибке записи; новые архивы имеют версию схемы.
+      // Импорт старых версий остаётся совместимым, неизвестные будущие версии отклоняются.
+      var storageBackup = {};
+      if(_storageOk){ for(var si=0;si<localStorage.length;si++){ var sk=localStorage.key(si); storageBackup[sk]=localStorage.getItem(sk); } }
+      var oldState = {products:products,goals:goals,weightLog:weightLog,measureLog:measureLog,creatineLog:creatineLog,favorites:favorites,trainingDays:trainingDays,exercises:exercises,diaryCache:diaryCache,workoutCache:workoutCache,bikeCache:bikeCache};
+      try{
+        // Удаляем прежние датированные записи, чтобы архив действительно заменял набор дней, а не смешивался с ним.
+        if(_storageOk){
+          var dynamicKeys=[];
+          for(var dk=0;dk<localStorage.length;dk++){ var dkey=localStorage.key(dk); if(dkey && /^(diary:|workout:|bike:)/.test(dkey)) dynamicKeys.push(dkey); }
+          dynamicKeys.forEach(function(k){localStorage.removeItem(k);});
+        }
+        if(data.products) products=data.products;
+        if(data.goals) goals=data.goals;
+        if(data.weightLog) weightLog=data.weightLog;
+        if(data.measureLog) measureLog=data.measureLog;
+        if(data.creatineLog) creatineLog=data.creatineLog;
+        if(data.favorites) favorites=data.favorites;
+        if(data.trainingDays) trainingDays=data.trainingDays;
+        if(data.exercises) exercises=data.exercises;
+        [['products',products],['goals',goals],['weightLog',weightLog],['measureLog',measureLog],['creatineLog',creatineLog],['favorites',favorites],['trainingDays',trainingDays],['exercises',exercises]].forEach(function(x){ if(data[x[0]]!=null) sSet(x[0],x[1]); });
+        if(data.mealPlan){mealPlan=data.mealPlan;sSet('mealPlan',mealPlan);}
+        if(data.shopChecked){shopChecked=data.shopChecked;sSet('shopChecked',shopChecked);}
+        if(data.inventory){inventory=data.inventory;sSet('inventory',inventory);}
+        if(data.diary){ diaryCache={}; Object.keys(data.diary).forEach(function(d){diaryCache[d]=data.diary[d];sSet('diary:'+d,data.diary[d]);}); }
+        if(data.workouts){ workoutCache={}; Object.keys(data.workouts).forEach(function(d){workoutCache[d]=data.workouts[d];sSet('workout:'+d,data.workouts[d]);}); }
+        if(data.bike){ bikeCache={}; Object.keys(data.bike).forEach(function(d){var b=data.bike[d];if(b&&b.km>0){bikeCache[d]={km:+b.km,kcal:bikeKcalFromKm(+b.km)};sSet('bike:'+d,bikeCache[d]);}}); }
+      }catch(writeErr){
+        products=oldState.products;goals=oldState.goals;weightLog=oldState.weightLog;measureLog=oldState.measureLog;creatineLog=oldState.creatineLog;favorites=oldState.favorites;trainingDays=oldState.trainingDays;exercises=oldState.exercises;diaryCache=oldState.diaryCache;workoutCache=oldState.workoutCache;bikeCache=oldState.bikeCache;
+        if(_storageOk){ try{ Object.keys(localStorage).forEach(function(k){localStorage.removeItem(k);}); Object.keys(storageBackup).forEach(function(k){localStorage.setItem(k,storageBackup[k]);}); }catch(rollbackErr){} }
+        throw writeErr;
       }
-      if(data.workouts){
-        workoutCache = {};
-        Object.keys(data.workouts).forEach(function(date){
-          var list = data.workouts[date] || [];
-          workoutCache[date] = list;
-          sSet('workout:'+date, list);
-        });
-      }
-      if(data.bike){
-        bikeCache = {};
-        Object.keys(data.bike).forEach(function(date){
-          var b = data.bike[date];
-          if(b && b.km > 0){
-            bikeCache[date] = { km: b.km, kcal: b.kcal != null ? b.kcal : bikeKcalFromKm(b.km) };
-            sSet('bike:'+date, bikeCache[date]);
-          }
-        });
-      }
-      showToast('Данные импортированы');
-      render();
-    }catch(e){
-      showToast('Не удалось прочитать файл');
-    }
+      showToast('Данные импортированы'); render();
+    }catch(e){ showToast('Импорт отменён: файл повреждён или данные не подходят'); }
   };
   reader.readAsText(file);
   ev.target.value = '';
@@ -3742,11 +3863,20 @@ function openAddEntry(existing){
   function renderResults(q){
     var qLower = (q||'').toLowerCase();
     var list = products.filter(function(p){ return p.name.toLowerCase().indexOf(qLower) !== -1; });
-    // pinned + frequent first
+    // Избранное выше, затем недавно добавлявшиеся продукты.
+    var recentRank = {};
+    for(var di=0;di<14;di++){
+      var rd = shiftDate(todayStr(), -di);
+      getDiary(rd).forEach(function(en){
+        if(en.productId && recentRank[en.productId] == null) recentRank[en.productId] = di;
+      });
+    }
     list.sort(function(a,b){
-      var ra = favoriteRank(a.id);
-      var rb = favoriteRank(b.id);
+      var ra = favoriteRank(a.id), rb = favoriteRank(b.id);
       if(ra !== rb) return ra - rb;
+      var da = recentRank[a.id] == null ? 99 : recentRank[a.id];
+      var db = recentRank[b.id] == null ? 99 : recentRank[b.id];
+      if(da !== db) return da - db;
       return a.name.localeCompare(b.name);
     });
     resultsEl.innerHTML = list.map(function(p){
@@ -3979,6 +4109,11 @@ function openProductForm(existing){
     const portionName = (document.getElementById('pPortionName').value || '').trim();
     const portionGrams = parseFloat(document.getElementById('pPortionGrams').value);
     if(!name || isNaN(kcal)){ showToast('Заполни название и калории'); return; }
+    var dataWarnings = foodDataWarnings({kcal:kcal,protein:protein,fat:fat,carbs:carbs});
+    if(dataWarnings.length){
+      var proceed = confirm('Проверь данные продукта:\n\n'+dataWarnings.join('\n')+'\n\nВсё равно сохранить?');
+      if(!proceed) return;
+    }
     var portion = {
       fiber: isNaN(fiber) ? 0 : fiber,
       foodGroup: foodGroup
@@ -4119,8 +4254,9 @@ function openGoalsForm(){
   const root = document.getElementById('modalRoot');
   var estM = estimateMaintenanceKcal();
   var autoSupport = estM && estM.kcal ? estM.kcal : (goals.maintenanceKcal || 2000);
-  var autoSupportSource = estM && estM.kcal ? (estM.confidence === 'high' ? 'по весу и питанию · надёжность высокая' : 'по весу и питанию · предварительная оценка') : 'резервное значение · пока мало данных';
-  var autoPlan = Math.max(1200, Math.round(autoSupport - Math.round(0.5 * 7700 / 7)));
+  var autoSupportSource = estM && estM.kcal ? (estM.confidence === 'high' ? 'по тренду всех взвешиваний за 30 дней · высокая надёжность' : 'по тренду всех взвешиваний за 30 дней · предварительная оценка') : 'недостаточно данных за 30 дней · используется ручное значение';
+  var autoDailyDeficit = Math.round((0.5 * 7700) / (goals.rule8020 ? 6 : 7));
+  var autoPlan = Math.max(1200, Math.round(autoSupport - autoDailyDeficit));
   var autoMacros = macrosFromDeficitPlan(autoPlan);
 
   root.innerHTML = `
@@ -4136,6 +4272,7 @@ function openGoalsForm(){
           <div style="font-size:22px;font-weight:700;margin:2px 0 10px;">${autoMacros.kcal} ккал</div>
           <div style="font-size:13px;">Б ${autoMacros.protein} г · Ж ${autoMacros.fat} г · У ${autoMacros.carbs} г</div>
           <div style="font-size:13px;color:var(--muted);margin-top:10px;">Поддержание: <b style="color:var(--ink);">${Math.round(autoSupport)} ккал</b></div><div style="font-size:11px;color:var(--muted);margin-top:3px;">${autoSupportSource}</div>
+          ${autoSupport-autoDailyDeficit < 1200 ? '<div style="font-size:12px;color:var(--amber);margin-top:8px;line-height:1.4;">Из-за нижнего ограничения 1200 ккал фактический дефицит меньше расчётного. Темп −0,5 кг/нед не гарантируется.</div>' : ''}
         </div>
         <div id="manualGoalsView">
           <div class="field"><label>Калории</label><input id="gKcal" type="number" value="${goals.kcal}"></div>
@@ -4148,7 +4285,7 @@ function openGoalsForm(){
         </div>
         <label style="display:flex;align-items:flex-start;gap:10px;margin:10px 0 8px;font-size:13px;line-height:1.4;">
           <input type="checkbox" id="g8020" ${goals.rule8020!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>80/20 — 1 день поддержки в неделю</b><br><span style="color:var(--muted);font-size:12px;">В выбранный день калорийность равна поддержанию. На следующий день возвращается обычная цель.</span></span>
+          <span><b>80/20 — 1 день поддержки в неделю</b><br><span style="color:var(--muted);font-size:12px;">Один день — поддержание, остальные 6 дней — немного больший дефицит, чтобы сохранить недельный темп около 0,5 кг.</span></span>
         </label>
         <div class="field" id="maintenanceDayField"><label>День поддержки</label>
           <select id="gMaintDay" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:var(--surface);">
@@ -4178,9 +4315,13 @@ function openGoalsForm(){
 
   function refreshGoalsMode(){
     var auto = document.getElementById('gAutoW').checked;
+    var use8020 = document.getElementById('g8020').checked;
     document.getElementById('autoGoalsView').style.display = auto ? 'block' : 'none';
     document.getElementById('manualGoalsView').style.display = auto ? 'none' : 'block';
-    document.getElementById('maintenanceDayField').style.display = document.getElementById('g8020').checked ? 'block' : 'none';
+    document.getElementById('maintenanceDayField').style.display = use8020 ? 'block' : 'none';
+    var dailyDef = Math.round((0.5 * 7700) / (use8020 ? 6 : 7));
+    var preview = macrosFromDeficitPlan(Math.max(1200, Math.round(autoSupport - dailyDef)));
+    document.getElementById('autoGoalsView').innerHTML = '<div style="font-size:13px;color:var(--muted);">Цель на обычный день</div>'+      '<div style="font-size:22px;font-weight:700;margin:2px 0 10px;">'+preview.kcal+' ккал</div>'+      '<div style="font-size:13px;">Б '+preview.protein+' г · Ж '+preview.fat+' г · У '+preview.carbs+' г</div>'+      '<div style="font-size:13px;color:var(--muted);margin-top:10px;">Поддержание: <b style="color:var(--ink);">'+Math.round(autoSupport)+' ккал</b></div>'+      '<div style="font-size:11px;color:var(--muted);margin-top:3px;">'+autoSupportSource+'</div>'+      (use8020 ? '<div style="font-size:11px;color:var(--muted);margin-top:6px;">6 дней дефицита + 1 день поддержки · среднее за неделю ≈ '+Math.round((preview.kcal*6+autoSupport)/7)+' ккал/день</div>' : '');
   }
   document.getElementById('gAutoW').onchange = refreshGoalsMode;
   document.getElementById('g8020').onchange = refreshGoalsMode;
@@ -4190,6 +4331,7 @@ function openGoalsForm(){
   document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
   document.getElementById('saveBtn').onclick = function(){
     goals.autoFromWeight = !!document.getElementById('gAutoW').checked;
+    goals.rule8020 = !!document.getElementById('g8020').checked;
     if(!goals.autoFromWeight){
       goals.kcal = parseFloat(document.getElementById('gKcal').value)||goals.kcal;
       goals.protein = parseFloat(document.getElementById('gProtein').value)||goals.protein;
@@ -4201,11 +4343,11 @@ function openGoalsForm(){
       var est2 = estimateMaintenanceKcal();
       var mk = est2 && est2.kcal ? est2.kcal : (goals.maintenanceKcal || 2000);
       goals.maintenanceKcal = mk;
-      var plan = Math.max(1200, Math.round(mk - Math.round(0.5 * 7700 / 7)));
+      var dailyDeficit = Math.round((0.5 * 7700) / (goals.rule8020 ? 6 : 7));
+      var plan = Math.max(1200, Math.round(mk - dailyDeficit));
       var mm = macrosFromDeficitPlan(plan);
       goals.kcal = mm.kcal; goals.protein = mm.protein; goals.fat = mm.fat; goals.carbs = mm.carbs;
     }
-    goals.rule8020 = !!document.getElementById('g8020').checked;
     goals.workoutAuto = !!document.getElementById('gWoAuto').checked;
     goals.maintenanceWeekday = parseInt(document.getElementById('gMaintDay').value, 10);
     if(isNaN(goals.maintenanceWeekday)) goals.maintenanceWeekday = 0;

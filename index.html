@@ -278,30 +278,45 @@ function isTrainingDay(date){
   return getWorkouts(date || currentDate).length > 0;
 }
 function macrosFromDeficitPlan(planKcal){
-  // Белок фиксирован 150; жир и углеводы пропорционально, жир ≥ 40
+  // Белок 150 фикс.
+  // Жир: 30–50 г (средний за неделю), при росте плана жир НЕ увеличиваем — только углеводы.
+  // Углеводы: остаток, можно 0.
   var protein = 150;
-  var fatBase = goals.fat || 45;
-  var carbBase = goals.carbs || 125;
-  var refKcal = goals.kcal || 1500;
-  if(refKcal < 1000) refKcal = 1500;
-  var scale = planKcal / refKcal;
-  var fat = Math.round(fatBase * scale);
-  if(fat < 40) fat = 40;
   var protKcal = protein * 4;
+  var plan = Math.round(planKcal);
+  if(plan < 1200) plan = 1200;
+
+  var FAT_MIN = 30, FAT_MAX = 50;
+  // базовый жир из целей, зажатый в [30, 50]
+  var fat = goals.fat != null ? goals.fat : 45;
+  if(fat < FAT_MIN) fat = FAT_MIN;
+  if(fat > FAT_MAX) fat = FAT_MAX;
+
   var fatKcal = fat * 9;
-  var carbKcal = Math.max(0, planKcal - protKcal - fatKcal);
+  // если белок+жир не влезают в план — жир к минимуму, угли 0
+  if(protKcal + fatKcal > plan){
+    fat = FAT_MIN;
+    fatKcal = fat * 9;
+  }
+  // весь остаток калорий — только в углеводы (рост плана = рост углей)
+  var carbKcal = Math.max(0, plan - protKcal - fatKcal);
   var carbs = Math.round(carbKcal / 4);
-  return { kcal: Math.round(planKcal), protein: protein, fat: fat, carbs: carbs };
+  var kcal = protKcal + fat * 9 + carbs * 4;
+  return { kcal: kcal, protein: protein, fat: Math.round(fat), carbs: carbs };
 }
 
 function deficitPlanKcal(){
   var maint = effectiveMaintenanceKcal();
   // −0.5 кг/нед ≈ 0.5 * 7700 / 7 ≈ 550 ккал/день
   var deficit = Math.round((0.5 * 7700) / 7);
-  var plan = maint - deficit;
+  var plan = Math.round(maint - deficit);
+  // только нижний пол: 1200; верхнего потолка нет
   if(plan < 1200) plan = 1200;
-  if(plan > 1500) plan = 1500; // потолок приложения
   return plan;
+}
+
+function deficitPlanKcalRaw(){
+  return deficitPlanKcal();
 }
 
 function isMaintenanceDay(date){
@@ -338,7 +353,7 @@ function baseGoals(date){
   // 80/20: один день поддержки в неделю
   if(isMaintenanceDay(date)){
     var mk = effectiveMaintenanceKcal();
-    var fatM = Math.max(40, Math.round((goals.fat || 45) * (mk / Math.max(goals.kcal || 1500, 1000))));
+    var fatM = Math.max(30, Math.min(50, goals.fat != null ? goals.fat : 45));
     var carbM = Math.round(Math.max(0, mk - 150 * 4 - fatM * 9) / 4);
     return { kcal: mk, protein: 150, fat: fatM, carbs: carbM, isMaintenance: true };
   }
@@ -353,8 +368,8 @@ function weekMonday(date){
   d.setDate(d.getDate() + diff);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
-var MAX_DAY_KCAL = 1500;
-var MIN_DAY_KCAL = 1400; // не опускать план ниже — дни ~900–1000 нежелательны
+var MAX_DAY_KCAL = 10000; // без верхнего потолка
+var MIN_DAY_KCAL = 1200; // нижний пол плана
 
 // Protein target: base + unpaid miss from previous day(s), vs that day's target (not only base)
 function proteinGoalFor(date, depth){
@@ -420,7 +435,7 @@ function activeGoals(date){
   var carbMin = train ? base.carbs * 0.85 : base.carbs * 0.75;
   if(protectCarbs) carbMin = base.carbs;
   adjusted.carbs = Math.max(carbMin, Math.min(base.carbs, adjusted.carbs));
-  adjusted.fat = Math.max(base.fat * 0.7, Math.min(base.fat, adjusted.fat));
+  adjusted.fat = Math.max(30, Math.min(50, Math.max(base.fat * 0.7, Math.min(base.fat, adjusted.fat))));
   var kcalMin = Math.max(MIN_DAY_KCAL, Math.round(base.kcal * 0.75));
   adjusted.kcal = Math.max(kcalMin, Math.min(MAX_DAY_KCAL, Math.min(base.kcal, adjusted.kcal)));
 
@@ -2288,16 +2303,18 @@ function avgWeightInRange(fromDate, toDate){
 }
 
 /**
- * Оценка калорий поддержания по факту:
- * берём 2 окна — ~14 дней и ~30 дней (динамические),
- * maint ≈ средний нетто-приём − (Δкг * 7700 / дней между взвешиваниями)
- * Итог — взвешенное среднее оценок с достаточными данными.
+ * Оценка поддержки по еде+весу за ~14 и ~30 дней.
+ * Важно: быстрый сброс (вода/гликоген) не считаем целиком жиром —
+ * учитываем Δкг не быстрее ~0.75 кг/нед для формулы.
  */
 function estimateMaintenanceKcal(){
+  var sortedW = (weightLog || []).filter(function(w){ return w && w.kg > 0; })
+    .slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
+  var lastKg = sortedW.length ? sortedW[sortedW.length-1].kg : null;
+
   function windowEst(daysBack){
     var end = todayStr();
     var start = shiftDate(end, -(daysBack - 1));
-    // приём: только дни с едой внутри окна
     var totalK = 0, foodDays = 0;
     for(var i=0;i<daysBack;i++){
       var d = shiftDate(end, -i);
@@ -2307,35 +2324,38 @@ function estimateMaintenanceKcal(){
         foodDays++;
       }
     }
-    if(foodDays < Math.max(5, Math.floor(daysBack * 0.35))){
-      return null; // мало записей еды
-    }
+    if(foodDays < Math.max(5, Math.floor(daysBack * 0.35))) return null;
     var avgIntake = totalK / foodDays;
 
-    // вес: первое и последнее взвешивание в окне (или чуть шире ±3 дня)
     var wStart = shiftDate(start, -3);
-    var weights = (weightLog || []).filter(function(w){
-      return w && w.kg > 0 && w.date >= wStart && w.date <= end;
-    }).slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
+    var weights = sortedW.filter(function(w){ return w.date >= wStart && w.date <= end; });
     if(weights.length < 2) return null;
     var w0 = weights[0], w1 = weights[weights.length - 1];
     var spanDays = daysBetween(w0.date, w1.date);
     if(spanDays < 5) return null;
-    var deltaKg = w1.kg - w0.kg; // + набор, − сброс
-    // суточный баланс относительно поддержки
+
+    var deltaKgRaw = w1.kg - w0.kg;
+    // кап скорости: быстрее 0.75 кг/нед почти наверняка вода, не трогаем формулу полностью
+    var maxAbs = 0.75 * (spanDays / 7);
+    var deltaKg = deltaKgRaw;
+    if(deltaKg > maxAbs) deltaKg = maxAbs;
+    if(deltaKg < -maxAbs) deltaKg = -maxAbs;
+
     var dailyBal = (deltaKg * KCAL_PER_KG) / spanDays;
-    // если худел (deltaKg<0), значит ел ниже поддержки → maint = intake - dailyBal
-    // dailyBal отрицательный при похудении → intake - (-x) = intake + x ✓
     var maint = avgIntake - dailyBal;
-    if(!isFinite(maint) || maint < 1200 || maint > 4500) return null;
+    if(!isFinite(maint)) return null;
+
+    // вес окна: длиннее + больше еды — надёжнее; 30д важнее 14д
+    var wgt = (foodDays / daysBack) * (spanDays / daysBack) * (daysBack >= 28 ? 1.35 : 1);
     return {
       daysBack: daysBack,
       foodDays: foodDays,
       spanDays: spanDays,
       avgIntake: round(avgIntake),
-      deltaKg: round(deltaKg),
+      deltaKg: round(deltaKgRaw),
+      deltaUsed: round(deltaKg),
       maint: round(maint),
-      weight: Math.min(1.5, foodDays / 10) * Math.min(1.2, spanDays / 10)
+      weight: wgt
     };
   }
 
@@ -2344,23 +2364,40 @@ function estimateMaintenanceKcal(){
   var parts = [];
   if(e14) parts.push(e14);
   if(e30) parts.push(e30);
+
   if(!parts.length){
-    // fallback: только средний приём за 14/30 если вес не двигался / мало точек
     var a14 = avgIntakeLastDays(14);
     var a30 = avgIntakeLastDays(30);
-    if(a14.days >= 7) return { kcal: round(a14.avg), source: 'avg14', detail: 'мало данных по весу — ≈ средний приём за 14 дн.', windows: [] };
-    if(a30.days >= 12) return { kcal: round(a30.avg), source: 'avg30', detail: 'мало данных по весу — ≈ средний приём за 30 дн.', windows: [] };
+    // если вес стабилен/нет точек — поддержка ≈ средний приём (человек около баланса)
+    if(a30.days >= 12) return { kcal: round(a30.avg), source: 'avg30', detail: 'мало точек веса — ≈ средний приём за 30 дн. (~'+round(a30.avg)+')', windows: [] };
+    if(a14.days >= 7) return { kcal: round(a14.avg), source: 'avg14', detail: 'мало точек веса — ≈ средний приём за 14 дн. (~'+round(a14.avg)+')', windows: [] };
     return null;
   }
+
   var sumW = 0, sumM = 0;
   parts.forEach(function(p){ sumW += p.weight; sumM += p.maint * p.weight; });
-  var kcal = round(sumM / sumW);
-  // разумные границы
-  if(kcal < 1300) kcal = 1300;
-  if(kcal > 4000) kcal = 4000;
+  var kcal = sumM / sumW;
+
+  // якорь по массе тела: 22–36 ккал/кг (сидячий…умеренный)
+  if(lastKg && lastKg > 40){
+    var lo = lastKg * 22;
+    var hi = lastKg * 36;
+    // мягко тянем к окну, не режем жёстко одним скачком
+    if(kcal < lo) kcal = lo * 0.35 + kcal * 0.65;
+    if(kcal > hi) kcal = hi * 0.35 + kcal * 0.65;
+    if(kcal < lastKg * 20) kcal = lastKg * 20;
+    if(kcal > lastKg * 38) kcal = lastKg * 38;
+  } else {
+    if(kcal < 1400) kcal = 1400;
+    if(kcal > 3200) kcal = 3200;
+  }
+  kcal = round(kcal);
+
   var detail = parts.map(function(p){
-    return p.daysBack+'д: приём ~'+p.avgIntake+', Δ'+p.deltaKg+' кг → ~'+p.maint;
+    var note = (Math.abs(p.deltaKg - p.deltaUsed) > 0.15) ? (' учтён Δ'+p.deltaUsed+' из '+p.deltaKg) : '';
+    return p.daysBack+'д: приём ~'+p.avgIntake+', Δ'+p.deltaKg+' кг → ~'+p.maint+note;
   }).join(' · ');
+  detail += ' → итог '+kcal;
   return { kcal: kcal, source: 'weight+intake', detail: detail, windows: parts };
 }
 
@@ -3318,7 +3355,7 @@ function renderReportTab(content, fab){
       <div class="entry"><div class="name">Калории</div><div class="kcal">${goals.kcal}</div></div>
       <div class="entry"><div class="name">Б / Ж / У</div><div class="kcal" style="font-size:12px;">${goals.protein} / ${goals.fat} / ${goals.carbs}</div></div>
       <div class="entry"><div class="name">Режим</div><div class="kcal" style="font-size:12px;">${goals.smartAdjust?'Умный':'Спокойный'}</div></div>
-      <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;">Ориентир 1500 / 150 / 45 / 125 (среднее за неделю). Клетчатка и овощи — мягкие цели, не авария.</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;">Авто: поддержка −550 ккал (−0,5 кг/нед). Белок 150, жир 30–50, рост только углями. Пол 1200.</div>
     </div>
     ${(function(){
       var div = dietDiversity(7);
@@ -4233,9 +4270,15 @@ function openMeasureForm(existing){
 function openGoalsForm(){
   const root = document.getElementById('modalRoot');
   var estM = estimateMaintenanceKcal();
-  var estLine = estM
-    ? ('Оценка поддержки: <b>'+estM.kcal+' ккал</b><br><span style="color:var(--muted);">'+esc(estM.detail||'')+'</span>')
-    : 'Недостаточно данных для оценки поддержки (нужны записи еды и ≥2 взвешивания за 2–4 нед.)';
+  var estLine;
+  if(estM){
+    var plan = Math.max(1200, estM.kcal - Math.round(0.5 * 7700 / 7));
+    estLine = 'Оценка поддержки: <b>'+estM.kcal+' ккал</b>';
+    estLine += '<br><span style="color:var(--muted);">'+esc(estM.detail||'')+'</span>';
+    estLine += '<br><span style="color:var(--muted);">План −0,5 кг/нед: ~'+Math.round(plan)+' ккал (белок 150, жир 30–50, рост плана только углями). Пол 1200.</span>';
+  } else {
+    estLine = 'Недостаточно данных для оценки поддержки (нужны записи еды и ≥2 взвешивания за 2–4 нед.)';
+  }
   root.innerHTML = `
     <div class="overlay" id="ov">
       <div class="sheet">
@@ -4253,7 +4296,7 @@ function openGoalsForm(){
         <div class="field"><label>Калории поддержания (ручной запасной)</label><input id="gMaint2" type="number" inputmode="decimal" value="${goals.maintenanceKcal||''}" placeholder="если авто не считает"></div>
         <label style="display:flex;align-items:flex-start;gap:10px;margin:10px 0 8px;font-size:13px;line-height:1.4;">
           <input type="checkbox" id="gAutoW" ${goals.autoFromWeight?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>Автоцели от веса (−0,5 кг/нед)</b><br><span style="color:var(--muted);font-size:12px;">Поддержка считается по еде+весу за 14 и 30 дней. Дефицит ≈ 550 ккал. Белок 150, жир ≥40. Потолок 1500.</span></span>
+          <span><b>Автоцели от веса (−0,5 кг/нед)</b><br><span style="color:var(--muted);font-size:12px;">Поддержка по еде+весу за 14 и 30 дней. Дефицит ≈ 550 ккал. Белок 150, жир 30–50, рост только углями, угли можно 0. Пол 1200, без верхнего потолка.</span></span>
         </label>
         <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
           <input type="checkbox" id="g8020" ${goals.rule8020!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
@@ -4295,16 +4338,14 @@ function openGoalsForm(){
     var mk = est && est.kcal ? est.kcal : (parseFloat(document.getElementById('gMaint2').value) || goals.maintenanceKcal || 2000);
     if(est && est.kcal) document.getElementById('gMaint2').value = est.kcal;
     goals.maintenanceKcal = mk;
-    var plan = Math.min(1500, Math.max(1200, mk - Math.round(0.5 * 7700 / 7)));
-    var protein = 150;
-    var fat = Math.max(40, Math.round((45) * (plan / 1500)));
-    var carbs = Math.round(Math.max(0, plan - protein * 4 - fat * 9) / 4);
-    document.getElementById('gKcal').value = plan;
-    document.getElementById('gProtein').value = protein;
-    document.getElementById('gFat').value = fat;
-    document.getElementById('gCarbs').value = carbs;
+    var plan = Math.max(1200, Math.round(mk - Math.round(0.5 * 7700 / 7)));
+    var mm = macrosFromDeficitPlan(plan);
+    document.getElementById('gKcal').value = mm.kcal;
+    document.getElementById('gProtein').value = mm.protein;
+    document.getElementById('gFat').value = mm.fat;
+    document.getElementById('gCarbs').value = mm.carbs;
     document.getElementById('gAutoW').checked = true;
-    showToast('Поддержка ~'+mk+' → план '+plan+' ккал (−0,5 кг/нед)');
+    showToast('Поддержка ~'+mk+' → план '+mm.kcal+' ккал (Б'+mm.protein+' Ж'+mm.fat+' У'+mm.carbs+')');
   };
   document.getElementById('saveBtn').onclick = function(){
     goals.kcal = parseFloat(document.getElementById('gKcal').value)||goals.kcal;
@@ -5210,13 +5251,13 @@ function autoFillDay(date, existing, pool, ctx, opts){
   var weekAvg = weeklyMacroAverages(date, 7);
   var weekKcalOk = weekAvg && weekAvg.days >= 3 && weekAvg.kcal >= kGoal * 0.90;
   var weekKcalVeryLow = weekAvg && weekAvg.days >= 3 && weekAvg.kcal < kGoal * 0.82;
-  var weekFatLow = weekAvg && weekAvg.days >= 3 && weekAvg.fat < 40;
+  var weekFatLow = weekAvg && weekAvg.days >= 3 && weekAvg.fat < 30;
 
   // Если неделя уже около 1700, «добивать» день до 1700 не нужно.
   // Эффективная цель дня ≈ не выше того, что оставляет неделю у ориентира.
   var dayKcalTarget = kGoal;
   if(weekKcalOk){
-    dayKcalTarget = Math.min(kGoal, Math.max(1300, Math.round(kGoal * 0.88))); // ~1500 при цели 1700
+    dayKcalTarget = Math.min(kGoal, Math.max(1200, Math.round(kGoal * 0.88)));
   }
   var kcalGap = dayKcalTarget - base.kcal;
 

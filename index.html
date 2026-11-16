@@ -266,11 +266,6 @@ var trainingDays = {}; // legacy, unused for marking
 var exercises = []; // {id, name} library like products
 var currentDate = todayStr();
 var activeTab = 'diary';
-var mealPlan = {}; // date -> [{id, productId, grams, meal}]
-var shopChecked = {}; // monday -> {productId: true}
-var inventory = {}; // productId -> { grams, note }
-var planWeekStart = weekMonday(todayStr());
-var planOpenDay = null;
 // Пользовательская норма: 4 км = 100 ккал
 var BIKE_KCAL_PER_KM = 25;
 
@@ -571,85 +566,15 @@ function topUpDecision(date){
 function dayAdvice(date){
   date = date || currentDate;
   if(date !== todayStr()) return [];
-  var out = [];
   var d = topUpDecision(date);
-
-  // быстрый сброс веса — поверх логики добора
   var paceTip = weeklyWeightPace(0);
   if(paceTip && paceTip.delta < -paceTip.safeMax){
-    out.push({
-      type:'warn',
-      text: 'Вес падает слишком быстро ('+round(paceTip.delta)+' кг/нед). Не урезай еду сильнее — держись ближе к '+ (goals.kcal||1500)+' ккал в среднем за неделю.'
-    });
+    return [{ type:'warn', text:'Вес снижается слишком быстро ('+round(paceTip.delta)+' кг/нед). Не урезай питание дополнительно.' }];
   }
-
   if(d.need && d.reasonsNeed.length){
-    out.push({ type: d.reasonsNeed[0].pri <= 2 ? 'warn' : 'info', text: 'Добор нужен: '+d.reasonsNeed[0].text });
-    if(d.reasonsNeed[1]) out.push({ type:'info', text: d.reasonsNeed[1].text });
-  } else {
-    var skip = d.reasonsSkip.length ? d.reasonsSkip.join('; ') : 'приоритеты (белок, жиры за неделю, клетчатка) в порядке';
-    out.push({
-      type:'info',
-      text: 'Добор сегодня не обязателен: '+skip+'. 1500 ккал — ориентир среднего за неделю, не обязанность каждого дня.'
-    });
-    if(d.protMiss > 0 && d.protMiss <= 8){
-      out.push({ type:'info', text: 'При желании можно чуть добрать белок (−'+round(d.protMiss)+' г), без углеводов «ради калорий».' });
-    }
+    return [{ type: d.reasonsNeed[0].pri <= 2 ? 'warn' : 'info', text:d.reasonsNeed[0].text }];
   }
-
-  // максимум 2
-  return out.slice(0, 2);
-}
-
-/** План на завтра / ближайшие дни по средним пробелам */
-function planAheadTips(){
-  var tips = [];
-  var div = dietDiversity(7);
-  if(!div || div.daysWithFood < 2) return tips;
-  var fGoal = goals.fiberTarget || 28;
-  var parts = [];
-  if(div.avgFiber < fGoal * 0.75){
-    parts.push('клетчатка ~'+round(fGoal)+' г (ср. '+round(div.avgFiber)+')');
-  }
-  if(div.avgVeg < 250){
-    parts.push('овощи 300–400 г');
-  }
-  if(div.avgFruit < 120){
-    parts.push('фрукты 150–200 г');
-  }
-  if(parts.length){
-    tips.push({
-      type: 'info',
-      text: 'На завтра заранее: '+parts.join(', ')+'. Пример: овсянка + овощи + яблоко.'
-    });
-  }
-  return tips;
-}
-
-function buildTomorrowPlanLines(){
-  var div = dietDiversity(7);
-  var avg = weeklyMacroAverages(todayStr(), 7);
-  var lines = [];
-  lines.push('Белок '+(goals.protein||150)+' г (≥30 г в приём) — главный приоритет');
-  lines.push('Ккал ~'+(goals.kcal||1500)+' в среднем за неделю, не обязанность каждого дня');
-  if(avg && avg.fat < 45){
-    lines.push('Жиры: сейчас ср. ~'+round(avg.fat)+' г — держи выше 40 г в среднем');
-  } else {
-    lines.push('Жиры: контроль среднего за неделю (не ниже ~40 г)');
-  }
-  lines.push('Клетчатка '+(goals.fiberTarget||28)+' г · углеводы — только если нужно после белка и жиров');
-  if(!div || div.daysWithFood < 2 || div.avgVeg < 250){
-    lines.push('Овощи 300–400 г');
-  }
-  return lines;
-}
-
-function buildTomorrowPlanCard(){
-  var lines = buildTomorrowPlanLines();
-  return '<div class="card" style="margin-bottom:10px;padding:12px 14px;">'+
-    '<div style="font-weight:600;font-size:14px;margin-bottom:6px;">План на завтра</div>'+
-    lines.map(function(l){ return '<div style="font-size:12.5px;line-height:1.45;margin:4px 0;color:var(--muted);">• '+l+'</div>'; }).join('')+
-  '</div>';
+  return [];
 }
 
 function buildTemplateCard(){
@@ -694,38 +619,6 @@ function loadDayTemplate(){
   saveDiary(currentDate, dest);
   showToast('Шаблон добавлен');
   render();
-}
-
-function shoppingListFromGaps(){
-  var div = dietDiversity(7);
-  var items = [];
-  // что уже есть в холодильнике — не дублируем
-  var haveNames = {};
-  products.forEach(function(p){
-    if(invGet(p.id) > 0) haveNames[(p.name||'').toLowerCase()] = true;
-  });
-  function need(label, test){
-    if(test && !Object.keys(haveNames).some(function(n){ return test.test(n); })) items.push(label);
-  }
-  if(!div || div.avgVeg < 250) need('Огурцы, помидоры, капуста / брокколи', /огур|помид|капуст|броккол/);
-  if(!div || div.avgFruit < 120) need('Яблоки, мандарины или ягоды', /яблок|мандар|ягод/);
-  if(!div || div.avgFiber < 18) need('Овсянка или гречка', /овсян|гречк/);
-  if(!div || (div.groups && div.groups.protein < 5)) need('Курица / индейка / яйца / творог', /куриц|индей|яйц|творог/);
-  // пустые запасы часто используемых
-  products.forEach(function(p){
-    if(p.excludeFromPlan) return;
-    var usage = (productUsageCounts()[p.id] || 0);
-    if(usage >= 3 && invGet(p.id) <= 0){
-      var pack = packageStep(p) || p.portionGrams || 0;
-      var price = p.price != null ? (' ~'+p.price+'₽') : '';
-      var packTxt = pack ? (' ×'+pack+' г') : '';
-      items.push((p.name||'?')+packTxt+price+' (часто ешь, нет в холодильнике)');
-    }
-  });
-  if(!items.length) items.push('Рацион ок, холодильник не пустой — докупи по привычке');
-  // unique
-  var seen = {};
-  return items.filter(function(x){ if(seen[x]) return false; seen[x]=true; return true; }).slice(0, 12);
 }
 
 function remainingMacros(date){
@@ -1307,87 +1200,6 @@ function ensureProductMeta(p){
   return p;
 }
 
-/**
- * Ценность продукта 0–10 по полезности (не по калориям).
- * Жир из рыбы/авокадо/оливок > жир из жареного; овощи — за витамины/клетчатку;
- * ультра-обработка и сладкие напитки режут балл.
- */
-function productValueScore(p){
-  if(!p) return 0;
-  ensureProductMeta(p);
-  var n = (p.name || '').toLowerCase();
-  var g = p.foodGroup || 'other';
-  var score = 5;
-  var pr = p.protein || 0, fa = p.fat || 0, ca = p.carbs || 0, fi = p.fiber || 0, k = p.kcal || 1;
-
-  // --- база по группе ---
-  if(g === 'veg') score = 8.5;
-  else if(g === 'fruit') score = 7.5;
-  else if(g === 'protein') score = 7;
-  else if(g === 'dairy') score = 6.5;
-  else if(g === 'grain') score = 5.5;
-  else score = 4;
-
-  // --- качество жира / омега ---
-  if(/лосос|сёмг|семг|форел|скумбр|сельдь|сардин|тунец|авокадо|оливк|льнян|грецк.*орех|жирн.*рыб/.test(n)){
-    score += 1.8; // полезные жиры
-  }
-  if(/жарен|фри|бургер|майонез|спред|маргарин/.test(n)) score -= 1.5;
-  if(/яйц.*жарен|жарен.*яйц/.test(n)) score -= 0.8; // vs варёное/сырое
-
-  // --- белок: плотность ---
-  if(pr >= 20 && k > 0 && (pr * 4 / k) > 0.35) score += 0.8;
-  if(pr >= 15 && fa <= 5 && ca <= 5) score += 0.5; // «чистое» мясо/рыба
-
-  // --- овощи: клетчатка и «витаминный» профиль ---
-  if(g === 'veg'){
-    if(fi >= 2.5) score += 0.6;
-    if(/броккол|шпинат|капуст|морков|перец|тыкв|черри|помидор|лист/.test(n)) score += 0.5;
-    if(/солен|марин|кимчи/.test(n) && !/свеж/.test(n)) score -= 0.4;
-  }
-  if(g === 'fruit'){
-    if(/авокадо/.test(n)) score += 1.2;
-    if(/яблок|ягод|киви|апельсин|мандар/.test(n)) score += 0.3;
-    if(ca > 20 && fi < 1.5) score -= 0.3; // сладкие с низкой клетчаткой
-  }
-
-  // --- крупы / хлеб ---
-  if(g === 'grain'){
-    if(/овсян|гречк|бурый|цельноз|отруб|хлебец|бородин/.test(n)) score += 0.8;
-    if(/белый|батон|булка|сэндвич|american|лаваш|лепеш|макарон.*вар/.test(n)) score -= 0.3;
-    if(/фри|чип|сухар|saltletts|крекер/.test(n)) score -= 1.5;
-  }
-
-  // --- молочка: творог/йогурт без сахара vs десерты ---
-  if(g === 'dairy'){
-    if(/творог|скир|греческ|протеин|белок/.test(n) && !/шоколад|карамел|сахар|десерт/.test(n)) score += 0.7;
-    if(/0%|0\.|обезжир|станци/.test(n) && pr >= 10) score += 0.3;
-    if(/шоколад|карамел|пудинг|коровк/.test(n)) score -= 0.5;
-  }
-
-  // --- ультра-обработка / мусор ---
-  if(/пельмен|блинчик|биточек|шницель|шашлык|торт|зефир|мармелад|пастил|конфет|ммдм|м&m|sugar|сахар$|bon pari|шарлиз/.test(n)) score -= 2;
-  if(/adrenaline|burn|энерг|кола|sprite|фант/.test(n)) score -= 2.5;
-  if(/кафе|пят[её]рочк.*кафе|бургер кинг|рестор/.test(n)) score -= 1.2;
-  if(p.excludeFromPlan) score -= 0.5;
-
-  // --- клетчатка бонус ---
-  if(fi >= 5) score += 0.7;
-  else if(fi >= 3) score += 0.4;
-
-  // ручная переопределение, если задали value вручную 0–10
-  if(p.value != null && !isNaN(p.value)) score = +p.value;
-
-  score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
-  return score;
-}
-function valueBadge(score){
-  if(score >= 8) return { t: 'высокая', c: 'var(--green)' };
-  if(score >= 6) return { t: 'средняя', c: 'var(--amber)' };
-  if(score >= 4) return { t: 'ниже ср.', c: 'var(--muted)' };
-  return { t: 'низкая', c: 'var(--red)' };
-}
-
 /** Снимок КБЖУ на момент записи — дневник не зависит от будущих правок базы */
 function snapshotFromProduct(p, grams){
   ensureProductMeta(p);
@@ -1479,37 +1291,6 @@ function migrateDiarySnapshots(){
     if(ch) saveDiary(d, list);
   });
 }
-function packageStep(p){
-  if(!p) return 0;
-  if(p.packageGrams > 0) return p.packageGrams;
-  if(productHasPortion(p) && /штук|ломт|кусок|упак|пачк/i.test(p.portionName||'')) return p.portionGrams;
-  var pm = /(\d{2,4})\s*(?:г|гр|мл)\b/i.exec(p.name || '');
-  if(pm && +pm[1] >= 50 && +pm[1] <= 2000) return +pm[1];
-  return 0;
-}
-function roundToPackage(grams, p){
-  var step = packageStep(p);
-  if(!step || step < 10) return grams;
-  var n = Math.max(1, Math.round(grams / step));
-  return n * step;
-}
-function invGet(id){
-  var x = inventory[id];
-  return x && x.grams > 0 ? x.grams : 0;
-}
-function invSet(id, grams, note){
-  if(grams > 0) inventory[id] = { grams: round(grams), note: note || (inventory[id] && inventory[id].note) || '' };
-  else delete inventory[id];
-  sSet('inventory', inventory);
-}
-function invDeduct(id, grams){
-  if(!(grams > 0) || !id) return;
-  var have = invGet(id);
-  if(have <= 0) return;
-  // списание с запасом: не уходим в минус; «едят и другие» — можно списать не всё
-  invSet(id, Math.max(0, have - grams));
-}
-
 function computeTotals(entries){
   var t = {kcal:0, protein:0, fat:0, carbs:0, fiber:0, veg:0, fruit:0};
   entries.forEach(function(e){
@@ -1606,12 +1387,6 @@ function init(){
       if(goals.smartAdjust == null) goals.smartAdjust = false;
     }
     dayTemplate = sGet('dayTemplate', null);
-    var mp = sGet('mealPlan', {});
-    mealPlan = (mp && typeof mp === 'object' && !Array.isArray(mp)) ? mp : {};
-    var sc = sGet('shopChecked', {});
-    shopChecked = (sc && typeof sc === 'object' && !Array.isArray(sc)) ? sc : {};
-    var inv = sGet('inventory', {});
-    inventory = (inv && typeof inv === 'object' && !Array.isArray(inv)) ? inv : {};
     weightLog = w || [];
     measureLog = Array.isArray(ml) ? ml : [];
     creatineLog = cr && typeof cr === 'object' ? cr : {};
@@ -1718,7 +1493,7 @@ function render(){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===activeTab));
   var rcEl = document.getElementById('receipt');
   if(rcEl) rcEl.style.display = '';
-  if(activeTab!=='plan') renderReceipt();
+  renderReceipt();
   const content = document.getElementById('content');
   const fab = document.getElementById('fab');
   if(activeTab==='diary'){ renderDiaryTab(content, fab); }
@@ -1893,31 +1668,17 @@ function renderDiaryTab(content, fab){
       <div style="font-weight:600;font-size:13px;">День поддержки (80/20)</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;">Норма = ${base.kcal} ккал (поддержание). Переел — завтра обычный план, без отработки голодом.</div>
     </div>`;
-  } else if(goals.autoFromWeight){
-    var em = effectiveMaintenanceKcal();
-    adjNote = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.4;padding:0 2px;">
-      Авто: поддержка ~${em} → план ${round(base.kcal)} ккал · Б${round(base.protein)} Ж${round(base.fat)} У${round(base.carbs)} (−0,5 кг/нед)
-    </div>`;
-  }
-  if(goals.smartAdjust !== false && (Math.abs(g.kcal - base.kcal) >= 15 || Math.abs(g.carbs - base.carbs) >= 5 || Math.abs(g.protein - base.protein) >= 5)){
-    adjNote += `<div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.4;padding:0 2px;">
-      План скорректирован: ${round(g.kcal)} ккал · Б${round(g.protein)} Ж${round(g.fat)} У${round(g.carbs)}
-    </div>`;
   }
   var tips = dayAdvice(currentDate);
   var tipsHtml = tips.length ? `<div class="card" style="margin-bottom:10px;padding:10px 12px;">${tips.map(function(t){
     var col = t.type==='warn' ? 'var(--red)' : 'var(--green)';
     return `<div style="font-size:12.5px;line-height:1.45;margin:4px 0;color:${col};">${t.text}</div>`;
   }).join('')}</div>` : '';
-  var planCard = (currentDate === todayStr()) ? buildTomorrowPlanCard() : '';
   var tplCard = buildTemplateCard();
-  adjNote = tipsHtml + planCard + tplCard + adjNote;
+  adjNote = tipsHtml + tplCard + adjNote;
 
   function entryRow(e){
     var m = entryMacros(e);
-    var pPct = dayTot.protein > 0 ? Math.round(m.protein / dayTot.protein * 100) : 0;
-    var fPct = dayTot.fat > 0 ? Math.round(m.fat / dayTot.fat * 100) : 0;
-    var cPct = dayTot.carbs > 0 ? Math.round(m.carbs / dayTot.carbs * 100) : 0;
     var prod = (!e.custom && e.productId) ? products.find(function(pr){ return pr.id===e.productId; }) : null;
     var portionTxt = prod && m.grams != null ? formatPortionLine(prod, m.grams) : null;
     var gramsLine = m.grams != null
@@ -1927,16 +1688,15 @@ function renderDiaryTab(content, fab){
     var timeTag = e.time ? e.time : '';
     var isOver = !!crossed[e.id];
     var which = (crossedMacros[e.id]||[]).map(function(k){ return macroShort[k]; }).join(', ');
-    var kcalOfGoal = g.kcal > 0 ? Math.round(m.kcal / g.kcal * 100) : 0;
     return `<div class="entry ${isOver?'entry-over':''}" data-edit-entry="${e.id}">
       <div style="flex:1">
         <div class="name">${m.name}${isOver ? ' · ↑'+which : ''}</div>
         <div class="grams">${timeTag ? timeTag+' · ' : ''}${gramsLine}${mealTag ? ' · '+mealTag : ''}</div>
-        <div class="bjupct">Б ${round(m.protein)} (${pPct}%) · Ж ${round(m.fat)} (${fPct}%) · У ${round(m.carbs)} (${cPct}%)</div>
+        <div class="bjupct">Б ${round(m.protein)} г · Ж ${round(m.fat)} г · У ${round(m.carbs)} г</div>
       </div>
       <div style="text-align:right;">
         <div class="kcal">${round(m.kcal)}</div>
-        <div style="font-size:11px;color:var(--muted);font-family:var(--mono);">${kcalOfGoal}%</div>
+        
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;margin-left:4px;">
         ${currentDate !== todayStr() ? '<button type="button" class="btn ghost" data-copy-today="'+e.id+'" style="padding:4px 8px;font-size:11px;min-width:auto;">→ сегодня</button>' : ''}
@@ -2461,8 +2221,8 @@ function renderProductsTab(content, fab){
   function prodRow(p){
     return `<div class="prod-row">
         <div>
-          <div class="pname">${p.isRecipe?'🍳 ':''}${p.excludeFromPlan?'🚫 ':''}${invGet(p.id)>0?'🧊 ':''}${isRawProduct(p)?'🥕 ':''}${p.name}</div>
-          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs} · <span style="color:${valueBadge(productValueScore(p)).c};font-weight:600;">★${productValueScore(p)}</span>${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.packageGrams?' · уп. '+p.packageGrams+'г':''}${p.price!=null?' · '+p.price+'₽':''}${invGet(p.id)>0?' · в хол. '+invGet(p.id)+'г':''}${isRawProduct(p)?' · сырьё':''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
+          <div class="pname">${p.isRecipe?'🍳 ':''}${p.name}</div>
+          <div class="pmacros">${p.kcal} ккал · Б${p.protein} Ж${p.fat} У${p.carbs}${productHasPortion(p) ? ' · 1 '+p.portionName+' = '+p.portionGrams+' г' : ''}${p.isRecipe && p.ingredients ? ' · '+p.ingredients.length+' ингр.' : ''}</div>
         </div>
         <div class="prod-actions">
           <button data-edit="${p.id}">✎</button>
@@ -2600,7 +2360,7 @@ function estimateMaintenanceKcal(){
         foodDays++;
       }
     }
-    if(foodDays < Math.max(5, Math.floor(daysBack * 0.35))) return null;
+    if(foodDays < Math.max(7, Math.ceil(daysBack * 0.5))) return null;
     var avgIntake = totalK / foodDays;
 
     var wStart = shiftDate(start, -3);
@@ -2608,7 +2368,7 @@ function estimateMaintenanceKcal(){
     if(weights.length < 2) return null;
     var w0 = weights[0], w1 = weights[weights.length - 1];
     var spanDays = daysBetween(w0.date, w1.date);
-    if(spanDays < 5) return null;
+    if(spanDays < 7) return null;
 
     var deltaKgRaw = w1.kg - w0.kg;
     // кап скорости: быстрее 0.75 кг/нед почти наверняка вода, не трогаем формулу полностью
@@ -2641,14 +2401,9 @@ function estimateMaintenanceKcal(){
   if(e14) parts.push(e14);
   if(e30) parts.push(e30);
 
-  if(!parts.length){
-    var a14 = avgIntakeLastDays(14);
-    var a30 = avgIntakeLastDays(30);
-    // если вес стабилен/нет точек — поддержка ≈ средний приём (человек около баланса)
-    if(a30.days >= 12) return { kcal: round(a30.avg), source: 'avg30', detail: 'мало точек веса — ≈ средний приём за 30 дн. (~'+round(a30.avg)+')', windows: [] };
-    if(a14.days >= 7) return { kcal: round(a14.avg), source: 'avg14', detail: 'мало точек веса — ≈ средний приём за 14 дн. (~'+round(a14.avg)+')', windows: [] };
-    return null;
-  }
+  // Одного среднего потребления недостаточно, чтобы назвать его поддержанием.
+  // Если нет достаточной динамики веса, возвращаем null и используем ручной резерв.
+  if(!parts.length) return null;
 
   var sumW = 0, sumM = 0;
   parts.forEach(function(p){ sumW += p.weight; sumM += p.maint * p.weight; });
@@ -2674,7 +2429,7 @@ function estimateMaintenanceKcal(){
     return p.daysBack+'д: приём ~'+p.avgIntake+', Δ'+p.deltaKg+' кг → ~'+p.maint+note;
   }).join(' · ');
   detail += ' → итог '+kcal;
-  return { kcal: kcal, source: 'weight+intake', detail: detail, windows: parts };
+  return { kcal: kcal, source: 'weight+intake', confidence: parts.length >= 2 ? 'high' : 'medium', detail: detail, windows: parts };
 }
 
 /** Актуальная поддержка: авто-оценка или ручной ввод */
@@ -2863,171 +2618,6 @@ function productsByGroups(list){
   if(rest.length) out.push({ key:'other', title:'Иное', items:rest });
   return out;
 }
-function isRawProduct(p){
-  if(p && p.isRaw === true) return true;
-  if(p && p.isRaw === false) return false;
-  var n = ((p && p.name) || '').toLowerCase();
-  // готовое / варёное — не сырьё
-  if(/варён|вареный|варёная|готовый|готовая|жарен|пюре|консерв|в собственном|отварн/.test(n)) return false;
-  if(/ exp|упаков|skyr|пудинг|йогурт|творог|сыр |ветчин|сосиск|хлеб|булка|лаваш|протеин/.test(n)) return false;
-  // сырьё по умолчанию для круп/корнеплодов в сухом виде
-  if(/картофел|картош|макарон|спагет|гречка сух|рис сух|овсянк[а-я]* сух|крупа|мука|чечевица красная|фасоль сух/.test(n)) return true;
-  if(/сухая|сухой|сухие/.test(n) && /греч|рис|овсян|чечев|перлов|пш[её]н/.test(n)) return true;
-  return false;
-}
-
-function renderFridgeTab(content, fab){
-  var groups = [
-    { key:'protein', title:'Мясо / рыба / яйца', match: function(p){ return (p.foodGroup==='protein') || /яйц|рыб|тунц|куриц|индей|говяд|свинин|мясо|ветчин|сосиск|карпач/i.test(p.name||''); } },
-    { key:'dairy', title:'Молочка', match: function(p){ return p.foodGroup==='dairy' || /творог|йогурт|молоко|сыр|кефир|скир|протеин|пудинг/i.test(p.name||''); } },
-    { key:'grain', title:'Крупы / корнеплоды', match: function(p){ return p.foodGroup==='grain' || /гречк|рис|овсян|хлеб|картоф|чечевиц|макарон|лаваш/i.test(p.name||''); } },
-    { key:'veg', title:'Овощи', match: function(p){ return p.foodGroup==='veg'; } },
-    { key:'fruit', title:'Фрукты', match: function(p){ return p.foodGroup==='fruit'; } },
-    { key:'other', title:'Иное', match: function(p){ return true; } }
-  ];
-  var inFridge = products.filter(function(p){ return invGet(p.id) > 0; });
-  var used = {};
-  var html = '<div class="section-title">Холодильник</div>'+
-    '<div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;line-height:1.4;">Что есть дома. При записи в дневник запас списывается. Можно править вручную — едят и другие.</div>';
-  if(!inFridge.length){
-    html += '<div class="card"><div class="empty" style="padding:16px;">Пусто. Добавь запас в карточке продукта<br>или кнопкой ниже.</div></div>';
-  }
-  groups.forEach(function(g){
-    var list;
-    if(g.key==='other'){
-      list = inFridge.filter(function(p){ return !used[p.id]; });
-    } else {
-      list = inFridge.filter(function(p){
-        if(used[p.id]) return false;
-        if(g.match(p)){ used[p.id]=true; return true; }
-        return false;
-      });
-    }
-    if(!list.length) return;
-    html += '<div class="section-title">'+g.title+'</div><div class="card">';
-    list.forEach(function(p){
-      var gms = invGet(p.id);
-      var note = '';
-      html += '<div class="entry" data-fr-edit="'+p.id+'" style="cursor:pointer;">'+
-        '<div class="name">'+p.name+(isRawProduct(p)?' · 🥕':'')+'</div>'+
-        '<div class="kcal">'+gms+' г</div></div>';
-    });
-    html += '</div>';
-  });
-  content.innerHTML = html;
-  fab.innerHTML = '<button id="fridgeAddBtn">+ В холодильник</button>';
-  document.getElementById('fridgeAddBtn').onclick = function(){ openFridgeAdd(); };
-  content.querySelectorAll('[data-fr-edit]').forEach(function(row){
-    row.onclick = function(){
-      var p = products.find(function(x){ return x.id===row.getAttribute('data-fr-edit'); });
-      if(p) openFridgeEdit(p);
-    };
-  });
-}
-function openFridgeAdd(){
-  var root = document.getElementById('modalRoot');
-  var selected = null;
-  function packUnit(p){
-    var step = packageStep(p);
-    if(step > 0) return { step: step, label: (productHasPortion(p) && p.portionName) ? p.portionName : 'уп.', byPack: true };
-    if(productHasPortion(p) && p.portionGrams > 0) return { step: p.portionGrams, label: p.portionName || 'порция', byPack: true };
-    return { step: 0, label: 'г', byPack: false };
-  }
-  function draw(){
-    var q = ((document.getElementById('frSearch') && document.getElementById('frSearch').value) || '').trim().toLowerCase();
-    var list = products.filter(function(p){
-      if(!q) return true;
-      return (p.name||'').toLowerCase().indexOf(q) >= 0;
-    });
-    var groups = productsByGroups(list);
-    var body = '';
-    groups.forEach(function(g){
-      body += '<div style="font-size:11px;color:var(--muted);margin:10px 0 4px;font-weight:600;">'+g.title+'</div>';
-      g.items.forEach(function(p){
-        var sel = selected && selected.id === p.id;
-        var have = invGet(p.id);
-        body += '<div class="search-item'+(sel?' selected':'')+'" data-fr-pick="'+p.id+'">'+
-          '<span>'+p.name+(have?' · есть '+have+'г':'')+(isRawProduct(p)?' · 🥕':'')+'</span>'+
-          '<span class="sm">'+(packageStep(p)|| (productHasPortion(p)?p.portionGrams:'—'))+'</span></div>';
-      });
-    });
-    if(!body) body = '<div class="empty" style="padding:16px;">Ничего не найдено</div>';
-    var unit = selected ? packUnit(selected) : { step:0, byPack:false, label:'г' };
-    var qtyLabel = unit.byPack ? ('Количество ('+unit.label+', по '+unit.step+' г)') : 'Сколько грамм';
-    var qtyPh = unit.byPack ? '1' : '400';
-    root.innerHTML = '<div class="overlay" id="ov"><div class="sheet">'+
-      '<h2>В холодильник</h2>'+
-      '<div class="field"><label>Поиск</label><input id="frSearch" type="search" placeholder="Начни вводить…" value="'+(q||'').replace(/"/g,'&quot;')+'"></div>'+
-      '<div class="search-list" id="frList" style="max-height:220px;">'+body+'</div>'+
-      (selected ? '<div style="font-size:13px;margin:10px 0 4px;"><b>'+selected.name+'</b>'+(unit.byPack?' · только целыми '+unit.label:'')+'</div>' : '')+
-      '<div class="field"><label>'+qtyLabel+'</label><input id="frG" type="number" inputmode="decimal" placeholder="'+qtyPh+'" value="'+(unit.byPack?'1':'')+'"></div>'+
-      '<div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>'+
-      '</div></div>';
-    document.getElementById('cancelBtn').onclick = closeModal;
-    document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
-    var search = document.getElementById('frSearch');
-    search.oninput = function(){ draw(); setTimeout(function(){ var s=document.getElementById('frSearch'); if(s){ s.focus(); s.setSelectionRange(s.value.length,s.value.length); } }, 0); };
-    root.querySelectorAll('[data-fr-pick]').forEach(function(el){
-      el.onclick = function(){
-        selected = products.find(function(p){ return p.id === el.getAttribute('data-fr-pick'); });
-        draw();
-      };
-    });
-    document.getElementById('saveBtn').onclick = function(){
-      if(!selected){ showToast('Выбери продукт'); return; }
-      var raw = parseFloat(document.getElementById('frG').value);
-      if(!(raw > 0)){ showToast('Укажи количество'); return; }
-      var u = packUnit(selected);
-      var grams;
-      if(u.byPack){
-        var n = Math.max(1, Math.round(raw));
-        grams = n * u.step;
-      } else {
-        grams = raw;
-      }
-      var prev = invGet(selected.id);
-      invSet(selected.id, prev + grams, '');
-      closeModal();
-      showToast((prev? 'Дописано · ':'')+selected.name+' · '+round(grams)+' г');
-      render();
-    };
-  }
-  draw();
-}
-function openFridgeEdit(p){
-  var root = document.getElementById('modalRoot');
-  var g0 = invGet(p.id);
-  var step = packageStep(p) || (productHasPortion(p) ? p.portionGrams : 0);
-  var byPack = step > 0;
-  var qty0 = byPack ? (Math.round(g0 / step * 10) / 10) : g0;
-  var lab = byPack ? ('Количество (×'+step+' г)') : 'Грамм в холодильнике';
-  root.innerHTML = '<div class="overlay" id="ov"><div class="sheet">'+
-    '<h2>'+p.name+'</h2>'+
-    '<div class="field"><label>'+lab+'</label><input id="frG" type="number" inputmode="decimal" value="'+qty0+'"></div>'+
-    (byPack ? '<div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Только целые упаковки/порции · сейчас ~'+round(g0)+' г</div>' : '')+
-    '<div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>'+
-    '<button class="btn danger" id="frClear" style="width:100%;margin-top:10px;">Убрать из холодильника</button>'+
-    '</div></div>';
-  document.getElementById('cancelBtn').onclick = closeModal;
-  document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
-  document.getElementById('saveBtn').onclick = function(){
-    var raw = parseFloat(document.getElementById('frG').value);
-    var g;
-    if(byPack){
-      if(!(raw > 0)) g = 0;
-      else g = Math.max(1, Math.round(raw)) * step;
-    } else {
-      g = isNaN(raw) ? 0 : raw;
-    }
-    invSet(p.id, g, '');
-    closeModal(); render();
-  };
-  document.getElementById('frClear').onclick = function(){
-    invSet(p.id, 0);
-    closeModal(); render();
-  };
-}
-
 function buildWeekPairHtml(sorted){
   // week-to-week — свайп по парам недель; слева прошлая, справа новая
   var today = todayStr();
@@ -3564,7 +3154,7 @@ function renderReportTab(content, fab){
   for(const d of days){
     const e = getDiary(d);
     const tot = computeTotals(e);
-    const bg = baseGoals(d);
+    const bg = activeGoals(d);
     rows.push({date:d, train:isTrainingDay(d), goalKcal:bg.kcal, goalP:bg.protein, goalF:bg.fat, goalC:bg.carbs, ...tot});
   }
   const today = todayStr();
@@ -3594,6 +3184,23 @@ function renderReportTab(content, fab){
   sortedW.forEach(function(w){ weightByDate[w.date] = w.kg; });
 
   var weekPairReportHtml = buildWeekPairHtml(sortedW);
+  var reportGoal = activeGoals(todayStr());
+  var trainingDays = days.filter(function(d){
+    return getWorkouts(d).some(function(w){ return !!w.done || (w.weight != null && w.sets); });
+  });
+  var recentExerciseFacts = [];
+  for(var di=days.length-1; di>=0 && recentExerciseFacts.length<3; di--){
+    var ws = getWorkouts(days[di]);
+    ws.forEach(function(w){
+      if(w.weight != null && w.sets && recentExerciseFacts.length<3){
+        recentExerciseFacts.push({name:w.name||'Упражнение', weight:w.weight, sets:w.sets, date:days[di]});
+      }
+    });
+  }
+  var trainingSummaryHtml = '<div class="section-title">Тренировки за 7 дней</div><div class="card">'+
+    '<div class="entry"><div class="name">Тренировочных дней</div><div class="kcal">'+trainingDays.length+' / 7</div></div>'+
+    (recentExerciseFacts.length ? recentExerciseFacts.map(function(x){ return '<div class="entry"><div class="name">'+x.name+'<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+fmtDateHuman(x.date)+'</div></div><div class="kcal">'+x.weight+' кг<div style="font-size:11px;color:var(--muted);">'+x.sets+'</div></div></div>'; }).join('') : '<div style="font-size:12px;color:var(--muted);padding:8px 0;">Пока нет записанных результатов</div>')+
+    '</div>';
   content.innerHTML = `
     <div class="section-title">Среднее за 7 дней</div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Включая сегодня · нетто = еда − вело${avgBike?(' · вело ~'+avgBike+' ккал/д'):''}</div>
@@ -3606,6 +3213,7 @@ function renderReportTab(content, fab){
     </div>
     <div class="section-title">Неделя к неделе</div>
     ${weekPairReportHtml}
+    ${trainingSummaryHtml}
     <div class="section-title">По дням</div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Нажми на день → дневник</div>
     <div class="card">${rows.map(function(r){
@@ -3626,12 +3234,11 @@ function renderReportTab(content, fab){
         ? `<div class="entry"><div class="name">Изменение за период записей</div><div class="kcal">${wDelta>0?'+':''}${wDelta} кг</div></div>`
         : '<div class="empty">Недостаточно данных о весе</div>'}
     </div>
-    <div class="section-title">Цели (нажми, чтобы изменить)</div>
+    <div class="section-title">Дневная цель (нажми, чтобы изменить)</div>
     <div class="card" id="goalsCard">
-      <div class="entry"><div class="name">Калории</div><div class="kcal">${goals.kcal}</div></div>
-      <div class="entry"><div class="name">Б / Ж / У</div><div class="kcal" style="font-size:12px;">${goals.protein} / ${goals.fat} / ${goals.carbs}</div></div>
-      <div class="entry"><div class="name">Режим</div><div class="kcal" style="font-size:12px;">${goals.smartAdjust?'Умный':'Спокойный'}</div></div>
-      <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;">Авто: поддержка −550 ккал (−0,5 кг/нед). Белок 150, жир 30–50, рост только углями. Пол 1200.</div>
+      <div class="entry"><div class="name">Калории</div><div class="kcal">${reportGoal.kcal}</div></div>
+      <div class="entry"><div class="name">Б / Ж / У</div><div class="kcal" style="font-size:12px;">${reportGoal.protein} / ${reportGoal.fat} / ${reportGoal.carbs}</div></div>
+      <div class="entry"><div class="name">Режим</div><div class="kcal" style="font-size:12px;">${goals.autoFromWeight?'Автоматический':'Ручной'}</div></div>
     </div>
     ${(function(){
       var div = dietDiversity(7);
@@ -3764,9 +3371,6 @@ function collectAllData(){
     favorites: favorites,
     trainingDays: trainingDays,
     exercises: exercises,
-    mealPlan: mealPlan,
-    shopChecked: shopChecked,
-    inventory: inventory,
     diary: diary,
     workouts: workouts,
     bike: bike
@@ -3824,9 +3428,6 @@ function importData(ev){
       sSet('favorites', favorites);
       sSet('trainingDays', trainingDays);
       sSet('exercises', exercises);
-      if(data.mealPlan && typeof data.mealPlan === 'object'){ mealPlan = data.mealPlan; sSet('mealPlan', mealPlan); }
-      if(data.shopChecked && typeof data.shopChecked === 'object'){ shopChecked = data.shopChecked; sSet('shopChecked', shopChecked); }
-      if(data.inventory && typeof data.inventory === 'object'){ inventory = data.inventory; sSet('inventory', inventory); }
       diaryCache = {};
       if(data.diary){
         Object.keys(data.diary).forEach(function(date){
@@ -4240,7 +3841,6 @@ function openAddEntry(existing){
         delete existing.carbs;
       } else {
         entries.push({id:uid(), productId:selected.id, grams:g, meal:meal, time:timeVal, snap: snapshotFromProduct(selected, g)});
-        invDeduct(selected.id, g);
       }
     } else {
       var name = (document.getElementById('customName').value || '').trim() || 'Свой приём';
@@ -4353,23 +3953,6 @@ function openProductForm(existing){
             return '<button type="button" class="btn ghost" data-pn="'+pr[0]+'" data-pg="'+pr[1]+'" style="padding:6px 10px;font-size:12px;">'+pr[0]+' '+pr[1]+'г</button>';
           }).join('')}
         </div>
-        <div class="section-title" style="margin-top:4px;">Упаковка и план</div>
-        <div class="row2">
-          <div class="field"><label>Упаковка, г</label><input id="pPack" type="number" inputmode="decimal" placeholder="130" value="${existing&&existing.packageGrams?existing.packageGrams:''}"></div>
-          <div class="field"><label>Цена за упаковку, ₽</label><input id="pPrice" type="number" inputmode="decimal" placeholder="120" value="${existing&&existing.price!=null?existing.price:''}"></div>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin:-4px 0 8px;line-height:1.35;">Автоподбор будет кратен упаковке (тунец 130 г → 130/260…). Цена — вручную; сайты из браузера часто блокируют парсинг (CORS).</div>
-        <div class="field"><label>Ценность 0–10 (пусто = авто)</label><input id="pValue" type="number" inputmode="decimal" min="0" max="10" step="0.5" placeholder="авто" value="${existing&&existing.value!=null?existing.value:''}"></div>
-        <div style="font-size:11px;color:var(--muted);margin:-6px 0 10px;line-height:1.35;">Авто: рыба/авокадо/овощи выше; жареное и сладкое ниже. Можно задать вручную.</div>
-        <label style="display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:13px;">
-          <input type="checkbox" id="pNoPlan" ${existing&&existing.excludeFromPlan?'checked':''} style="width:20px;height:20px;accent-color:var(--green);">
-          <span>Не подбирать в автоплан / список покупок</span>
-        </label>
-        <label style="display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:13px;">
-          <input type="checkbox" id="pIsRaw" ${existing&&isRawProduct(existing)?'checked':''} style="width:20px;height:20px;accent-color:var(--green);">
-          <span><b>Сырьё</b> (нужно готовить: картофель, крупа, макароны…)<br><span style="color:var(--muted);font-size:12px;">Сними галочку для готового блюда (варёный рис, пюре…)</span></span>
-        </label>
-        <div class="field"><label>В холодильнике, г</label><input id="pInv" type="number" inputmode="decimal" placeholder="0" value="${existing?invGet(existing.id)||'':''}"></div>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
           <button class="btn primary" id="saveBtn">Сохранить</button>
@@ -4395,20 +3978,10 @@ function openProductForm(existing){
     const foodGroup = document.getElementById('pGroup').value || 'other';
     const portionName = (document.getElementById('pPortionName').value || '').trim();
     const portionGrams = parseFloat(document.getElementById('pPortionGrams').value);
-    const packageGrams = parseFloat(document.getElementById('pPack').value);
-    const price = parseFloat(document.getElementById('pPrice').value);
-    const excludeFromPlan = !!(document.getElementById('pNoPlan') && document.getElementById('pNoPlan').checked);
-    const invG = parseFloat(document.getElementById('pInv').value);
-    const isRaw = !!(document.getElementById('pIsRaw') && document.getElementById('pIsRaw').checked);
     if(!name || isNaN(kcal)){ showToast('Заполни название и калории'); return; }
     var portion = {
       fiber: isNaN(fiber) ? 0 : fiber,
-      foodGroup: foodGroup,
-      excludeFromPlan: excludeFromPlan,
-      isRaw: typeof isRaw !== "undefined" ? isRaw : false,
-      packageGrams: (packageGrams > 0) ? packageGrams : null,
-      value: (function(){ var v=parseFloat(document.getElementById('pValue')&&document.getElementById('pValue').value); return (!isNaN(v)&&v>=0&&v<=10)?v:null; })(),
-      price: (!isNaN(price) && price >= 0) ? price : null
+      foodGroup: foodGroup
     };
     if(portionName && portionGrams > 0){
       portion.portionName = portionName;
@@ -4426,7 +3999,6 @@ function openProductForm(existing){
       products.push(Object.assign({id:pid, name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs}, portion));
     }
     sSet('products', products);
-    if(!isNaN(invG) && invG >= 0) invSet(pid, invG, '');
     closeModal();
     render();
   };
@@ -4547,6 +4119,7 @@ function openGoalsForm(){
   const root = document.getElementById('modalRoot');
   var estM = estimateMaintenanceKcal();
   var autoSupport = estM && estM.kcal ? estM.kcal : (goals.maintenanceKcal || 2000);
+  var autoSupportSource = estM && estM.kcal ? (estM.confidence === 'high' ? 'по весу и питанию · надёжность высокая' : 'по весу и питанию · предварительная оценка') : 'резервное значение · пока мало данных';
   var autoPlan = Math.max(1200, Math.round(autoSupport - Math.round(0.5 * 7700 / 7)));
   var autoMacros = macrosFromDeficitPlan(autoPlan);
 
@@ -4562,7 +4135,7 @@ function openGoalsForm(){
           <div style="font-size:13px;color:var(--muted);">Цель на день</div>
           <div style="font-size:22px;font-weight:700;margin:2px 0 10px;">${autoMacros.kcal} ккал</div>
           <div style="font-size:13px;">Б ${autoMacros.protein} г · Ж ${autoMacros.fat} г · У ${autoMacros.carbs} г</div>
-          <div style="font-size:13px;color:var(--muted);margin-top:10px;">Поддержание: <b style="color:var(--ink);">${Math.round(autoSupport)} ккал</b></div>
+          <div style="font-size:13px;color:var(--muted);margin-top:10px;">Поддержание: <b style="color:var(--ink);">${Math.round(autoSupport)} ккал</b></div><div style="font-size:11px;color:var(--muted);margin-top:3px;">${autoSupportSource}</div>
         </div>
         <div id="manualGoalsView">
           <div class="field"><label>Калории</label><input id="gKcal" type="number" value="${goals.kcal}"></div>
@@ -4667,1101 +4240,11 @@ var STAPLES = [
   {name:'Банан', kcal:96, protein:1.5, fat:0.5, carbs:21, fiber:2.6, foodGroup:'fruit', portionName:'штука', portionGrams:120},
   {name:'Масло оливковое', kcal:898, protein:0, fat:99.8, carbs:0, fiber:0, foodGroup:'other'}
 ];
-var SHOP_GROUPS = ['protein','dairy','grain','veg','fruit','other'];
-var SHOP_GROUP_LABELS = {
-  protein:'Мясо, рыба, яйца', dairy:'Молочное', grain:'Крупы, хлеб, бобовые',
-  veg:'Овощи', fruit:'Фрукты', other:'Прочее'
-};
-
 function esc(s){
   return String(s==null ? '' : s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
   });
 }
-function getPlan(date){
-  var p = mealPlan[date];
-  return Array.isArray(p) ? p : [];
-}
-function savePlan(date, list){
-  if(list && list.length) mealPlan[date] = list;
-  else delete mealPlan[date];
-  sSet('mealPlan', mealPlan);
-}
-function planWeekDates(mon){
-  var a = [];
-  for(var i=0;i<7;i++) a.push(shiftDate(mon, i));
-  return a;
-}
-function fmtWeekRange(mon){
-  var months = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
-  var s = new Date(mon+'T00:00:00');
-  var e = new Date(shiftDate(mon, 6)+'T00:00:00');
-  if(s.getMonth() === e.getMonth()){
-    return s.getDate()+'–'+e.getDate()+' '+months[s.getMonth()];
-  }
-  return s.getDate()+' '+months[s.getMonth()]+' – '+e.getDate()+' '+months[e.getMonth()];
-}
-function fmtPlanDay(date){
-  var names = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
-  var months = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
-  var d = new Date(date+'T00:00:00');
-  return names[d.getDay()]+', '+d.getDate()+' '+months[d.getMonth()];
-}
-function macrosOfProduct(p, grams){
-  var f = (grams||0)/100;
-  return {
-    kcal: (p.kcal||0)*f, protein: (p.protein||0)*f,
-    fat: (p.fat||0)*f, carbs: (p.carbs||0)*f, fiber: (p.fiber||0)*f
-  };
-}
-function ensureStaple(s){
-  var n = s.name.trim().toLowerCase();
-  var ex = products.find(function(p){ return (p.name||'').trim().toLowerCase() === n; });
-  if(ex) return ex;
-  var np = Object.assign({ id: uid() }, s);
-  ensureProductMeta(np);
-  products.push(np);
-  sSet('products', products);
-  return np;
-}
-function planCandidates(){
-  var counts = productUsageCounts();
-  var dbNames = {};
-  products.forEach(function(p){ dbNames[(p.name||'').trim().toLowerCase()] = true; });
-  function rank(p){ return favorites.indexOf(p.id) >= 0 ? -1e6 : -(counts[p.id]||0); }
-  var list = products.filter(function(p){ return !p.excludeFromPlan; }).slice().sort(function(a,b){
-    var ra = rank(a), rb = rank(b);
-    if(ra !== rb) return ra - rb;
-    return (a.name||'').localeCompare(b.name||'', 'ru');
-  }).map(function(p){ return { key:'p:'+p.id, p:p, staple:false }; });
-  STAPLES.forEach(function(s, i){
-    if(!dbNames[s.name.trim().toLowerCase()]) list.push({ key:'s:'+i, p:s, staple:true });
-  });
-  return list;
-}
-function copyText(text, msg){
-  function fallback(){
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    try{ document.execCommand('copy'); showToast(msg); }
-    catch(e){ showToast('Не удалось скопировать'); }
-    document.body.removeChild(ta);
-  }
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(text).then(function(){ showToast(msg); }).catch(fallback);
-  } else {
-    fallback();
-  }
-}
-
-/* ---- вкладка «План» ---- */
-function renderPlanTab(content, fab){
-  var mon = planWeekStart;
-  var dates = planWeekDates(mon);
-  var today = todayStr();
-  var curMon = weekMonday(today);
-  if(planOpenDay === null) planOpenDay = dates.indexOf(today) >= 0 ? today : dates[0];
-  var fiberGoal = goals.fiberTarget || 28;
-  var vfGoal = goals.vegFruitTarget || 500;
-
-  var filled = 0, sum = { kcal:0, protein:0, fiber:0, vf:0 };
-  dates.forEach(function(d){
-    var l = getPlan(d);
-    if(!l.length) return;
-    var t = computeTotals(l);
-    filled++;
-    sum.kcal += t.kcal; sum.protein += t.protein; sum.fiber += t.fiber; sum.vf += t.veg + t.fruit;
-  });
-
-  var html = '<div class="card" style="padding:12px 14px;">'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;">'+
-      '<button class="btn ghost" data-wnav="-1" style="flex:none;padding:6px 16px;font-size:18px;">‹</button>'+
-      '<div style="text-align:center;">'+
-        '<div style="font-family:var(--serif);font-size:16px;">'+fmtWeekRange(mon)+'</div>'+
-        (mon !== curMon ? '<div data-wnow="1" style="font-size:12px;color:var(--green);cursor:pointer;margin-top:2px;">к текущей неделе</div>' : '')+
-      '</div>'+
-      '<button class="btn ghost" data-wnav="1" style="flex:none;padding:6px 16px;font-size:18px;">›</button>'+
-    '</div>'+
-    '<div style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5;text-align:center;">'+
-      (filled
-        ? 'В среднем за '+filled+' дн.: '+Math.round(sum.kcal/filled)+' ккал · Б '+Math.round(sum.protein/filled)+' г · клетчатка '+round(sum.fiber/filled)+' г · овощи+фр. '+Math.round(sum.vf/filled)+' г'
-        : 'Неделя пуста — открой день и добавь продукты')+
-    '</div>'+
-    '<button class="btn ghost" id="autoWeekBtn" style="width:100%;margin-top:10px;padding:10px;font-size:13px;">✨ Собрать неделю до нормы</button>'+
-  '</div>';
-
-  dates.forEach(function(d){
-    var list = getPlan(d);
-    var t = computeTotals(list);
-    var g = baseGoals(d);
-    var isOpen = planOpenDay === d;
-    var overK = t.kcal > g.kcal, overF = t.fat > g.fat, overC = t.carbs > g.carbs;
-    var lowP = list.length && t.protein < g.protein * 0.9;
-    var lowFiber = list.length && t.fiber < fiberGoal;
-    var lowVf = list.length && (t.veg + t.fruit) < vfGoal;
-    var red = 'color:var(--red);font-weight:600;';
-    var amber = 'color:var(--amber);';
-    var barW = Math.min(100, g.kcal ? (t.kcal / g.kcal) * 100 : 0);
-
-    html += '<div class="card" data-day="'+d+'" style="padding:0;overflow:hidden;'+(d===today?'box-shadow:0 0 0 1.5px var(--green) inset;':'')+'">'+
-      '<div data-dayhead="'+d+'" style="padding:12px 14px;cursor:pointer;">'+
-        '<div style="display:flex;justify-content:space-between;align-items:baseline;">'+
-          '<div style="font-size:15px;font-weight:600;">'+fmtPlanDay(d)+(d===today?' <span style="font-size:11px;color:var(--green);font-weight:400;">сегодня</span>':'')+'</div>'+
-          '<div style="font-family:var(--mono);font-size:14px;'+(overK?red:'')+'">'+(list.length ? Math.round(t.kcal)+' <span style="font-size:11px;color:var(--muted);font-weight:400;">/ '+g.kcal+'</span>' : '<span style="font-size:12px;color:var(--muted);">пусто</span>')+'</div>'+
-        '</div>'+
-        (list.length
-          ? '<div class="bar'+(overK?' over':'')+'"><i style="width:'+barW+'%"></i></div>'+
-            '<div style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--muted);">'+
-              '<span style="'+(lowP?amber:'')+'">Б '+round(t.protein)+'/'+g.protein+'</span>'+
-              '<span style="'+(overF?red:'')+'">Ж '+round(t.fat)+'/'+g.fat+'</span>'+
-              '<span style="'+(overC?red:'')+'">У '+round(t.carbs)+'/'+g.carbs+'</span>'+
-              '<span style="'+(lowFiber?amber:'')+'">Кл '+round(t.fiber)+'/'+fiberGoal+'</span>'+
-              '<span style="'+(lowVf?amber:'')+'">О+Ф '+Math.round(t.veg+t.fruit)+'/'+vfGoal+'</span>'+
-            '</div>'
-          : '')+
-      '</div>';
-
-    if(isOpen){
-      html += '<div style="padding:0 14px 12px;border-top:1px dotted var(--line);">';
-      MEAL_ORDER.forEach(function(m){
-        var items = list.filter(function(e){ return (e.meal || 'lunch') === m; });
-        if(!items.length) return;
-        html += '<div class="section-title" style="margin:10px 0 2px;font-size:12.5px;">'+MEAL_LABELS[m]+'</div>';
-        items.forEach(function(e){
-          var mm = entryMacros(e);
-          var p = e.productId ? products.find(function(pr){ return pr.id === e.productId; }) : null;
-          var portion = p ? formatPortionLine(p, e.grams) : null;
-          if(portion) portion = portion.replace(/ штука$/, ' шт');
-          html += '<div class="entry" data-pedit="'+e.id+'" data-date="'+d+'" style="cursor:pointer;">'+
-            '<div class="name">'+esc(mm.name)+
-              '<div class="bjupct">Б'+round(mm.protein)+' Ж'+round(mm.fat)+' У'+round(mm.carbs)+'</div>'+
-            '</div>'+
-            '<div class="grams">'+(mm.grams!=null ? round(mm.grams)+' г' : '')+(portion ? '<br>'+esc(portion) : '')+'</div>'+
-            '<div class="kcal">'+Math.round(mm.kcal)+'</div>'+
-            '<button class="del" data-pdel="'+e.id+'" data-date="'+d+'">✕</button>'+
-          '</div>';
-        });
-      });
-      html += '<div style="display:flex;gap:8px;margin-top:10px;">'+
-        '<button class="btn primary" data-padd="'+d+'" style="padding:10px 6px;font-size:13px;">+ Добавить</button>'+
-        '<button class="btn ghost" data-pauto="'+d+'" style="padding:10px 6px;font-size:13px;">✨ Добрать</button>'+
-        '<button class="btn ghost" data-pmenu="'+d+'" style="flex:none;padding:10px 14px;font-size:13px;">⋯</button>'+
-      '</div></div>';
-    }
-    html += '</div>';
-  });
-
-  content.innerHTML = html;
-  fab.innerHTML = '<button id="shopBtn">🛒 Список покупок</button>';
-
-  content.querySelectorAll('[data-wnav]').forEach(function(b){
-    b.onclick = function(){
-      planWeekStart = shiftDate(planWeekStart, 7 * parseInt(b.dataset.wnav, 10));
-      planOpenDay = null;
-      render();
-    };
-  });
-  var wn = content.querySelector('[data-wnow]');
-  if(wn) wn.onclick = function(){ planWeekStart = weekMonday(todayStr()); planOpenDay = null; render(); };
-  content.querySelectorAll('[data-dayhead]').forEach(function(h){
-    h.onclick = function(){
-      planOpenDay = planOpenDay === h.dataset.dayhead ? '' : h.dataset.dayhead;
-      render();
-    };
-  });
-  content.querySelectorAll('[data-padd]').forEach(function(b){
-    b.onclick = function(){ openPlanAdd(b.dataset.padd, null); };
-  });
-  content.querySelectorAll('[data-pauto]').forEach(function(b){
-    b.onclick = function(){ openAutoPlan('day', b.dataset.pauto); };
-  });
-  document.getElementById('autoWeekBtn').onclick = function(){ openAutoPlan('week', null); };
-  content.querySelectorAll('[data-pmenu]').forEach(function(b){
-    b.onclick = function(){ openPlanDayMenu(b.dataset.pmenu); };
-  });
-  content.querySelectorAll('[data-pedit]').forEach(function(row){
-    row.onclick = function(){
-      var date = row.dataset.date;
-      var entry = getPlan(date).find(function(e){ return e.id === row.dataset.pedit; });
-      if(entry) openPlanAdd(date, entry);
-    };
-  });
-  content.querySelectorAll('[data-pdel]').forEach(function(b){
-    b.onclick = function(ev){
-      ev.stopPropagation();
-      var date = b.dataset.date;
-      savePlan(date, getPlan(date).filter(function(e){ return e.id !== b.dataset.pdel; }));
-      render();
-    };
-  });
-  document.getElementById('shopBtn').onclick = openShoppingList;
-}
-
-/* ---- добавить / изменить позицию плана ---- */
-function openPlanAdd(date, existing){
-  var root = document.getElementById('modalRoot');
-  var cands = planCandidates();
-  var selectedKey = null;
-  var meal = (existing && existing.meal) || 'lunch';
-  if(existing && existing.productId) selectedKey = 'p:'+existing.productId;
-  var g = baseGoals(date);
-
-  root.innerHTML =
-    '<div class="overlay" id="ov"><div class="sheet">'+
-      '<h2>'+(existing ? 'Изменить' : 'В план')+' · '+fmtPlanDay(date)+'</h2>'+
-      '<div class="field"><label>Приём пищи</label>'+
-        '<div style="display:flex;gap:6px;flex-wrap:wrap;" id="pMeal">'+
-          MEAL_ORDER.map(function(m){
-            return '<button type="button" class="btn '+(meal===m?'primary':'ghost')+'" data-meal="'+m+'" style="flex:1;min-width:70px;padding:8px;font-size:12px;">'+MEAL_LABELS[m]+'</button>';
-          }).join('')+
-        '</div></div>'+
-      '<div class="field"><label>Продукт</label><input type="text" id="pSearch" placeholder="Начни вводить название…"></div>'+
-      '<div class="search-list" id="pResults"></div>'+
-      '<div class="field" style="margin-top:12px;"><label id="pAmountLabel">Граммы</label>'+
-        '<input type="number" id="pGrams" inputmode="decimal" placeholder="150" value="'+(existing ? (existing.grams||'') : '')+'">'+
-        '<div style="display:flex;gap:6px;margin-top:8px;" id="pQuick">'+
-          [50,100,150,200,250].map(function(n){
-            return '<button type="button" class="btn ghost" data-g="'+n+'" style="flex:1;padding:8px;font-size:12px;">'+n+'</button>';
-          }).join('')+
-        '</div>'+
-        '<div style="display:none;gap:6px;margin-top:8px;" id="pPortions"></div>'+
-      '</div>'+
-      '<div class="live-calc" id="pLive"></div>'+
-      '<div class="sheet-actions">'+
-        '<button class="btn ghost" id="cancelBtn">Отмена</button>'+
-        '<button class="btn primary" id="saveBtn">'+(existing ? 'Сохранить' : 'Добавить')+'</button>'+
-      '</div>'+
-    '</div></div>';
-
-  var searchEl = document.getElementById('pSearch');
-  var resultsEl = document.getElementById('pResults');
-  var gramsEl = document.getElementById('pGrams');
-  var liveEl = document.getElementById('pLive');
-  var portionsEl = document.getElementById('pPortions');
-
-  function selectedItem(){
-    return cands.find(function(c){ return c.key === selectedKey; }) || null;
-  }
-  function drawResults(){
-    var q = (searchEl.value || '').trim().toLowerCase();
-    var tokens = q ? q.split(/\s+/) : [];
-    var shown = cands.filter(function(c){
-      if(!tokens.length) return true;
-      var words = (c.p.name||'').toLowerCase().split(/[^a-zа-яё0-9]+/);
-      return tokens.every(function(t){
-        return words.some(function(w){ return w.indexOf(t) === 0; });
-      });
-    });
-    var db = shown.filter(function(c){ return !c.staple; });
-    var st = shown.filter(function(c){ return c.staple; });
-    if(!q) db = db.slice(0, 40);
-    function row(c){
-      return '<div class="search-item'+(c.key===selectedKey?' selected':'')+'" data-key="'+c.key+'">'+
-        '<span>'+esc(c.p.name)+'</span>'+
-        '<span class="sm" style="white-space:nowrap;margin-left:8px;">'+Math.round(c.p.kcal||0)+' · Б'+round(c.p.protein||0)+'</span></div>';
-    }
-    var h = db.map(row).join('');
-    if(st.length){
-      h += '<div style="padding:6px 12px;font-size:11px;color:var(--muted);background:var(--bg);">Стандартные (сырой / сухой вес)</div>'+st.map(row).join('');
-    }
-    resultsEl.innerHTML = h || '<div style="padding:12px;font-size:13px;color:var(--muted);">Ничего не найдено</div>';
-    resultsEl.querySelectorAll('[data-key]').forEach(function(el){
-      el.onclick = function(){
-        selectedKey = el.dataset.key;
-        drawResults();
-        drawPortions();
-        updateLive();
-      };
-    });
-  }
-  function drawPortions(){
-    var it = selectedItem();
-    var has = it && productHasPortion(it.p);
-    portionsEl.style.display = has ? 'flex' : 'none';
-    if(!has){ portionsEl.innerHTML = ''; return; }
-    portionsEl.innerHTML = [1,2,3,4,5].map(function(n){
-      return '<button type="button" class="btn ghost" data-n="'+n+'" style="flex:1;padding:8px;font-size:12px;">'+n+' '+esc(it.p.portionName === 'штука' ? 'шт' : it.p.portionName)+'</button>';
-    }).join('');
-    portionsEl.querySelectorAll('[data-n]').forEach(function(b){
-      b.onclick = function(){
-        gramsEl.value = round(parseInt(b.dataset.n, 10) * it.p.portionGrams);
-        updateLive();
-      };
-    });
-  }
-  function updateLive(){
-    var it = selectedItem();
-    var grams = parseFloat(gramsEl.value) || 0;
-    if(!it || !grams){ liveEl.textContent = it ? 'Укажи граммы' : 'Выбери продукт'; return; }
-    var m = macrosOfProduct(it.p, grams);
-    var base = computeTotals(getPlan(date).filter(function(e){ return !existing || e.id !== existing.id; }));
-    liveEl.innerHTML =
-      round(m.kcal)+' ккал · Б'+round(m.protein)+' Ж'+round(m.fat)+' У'+round(m.carbs)+' · кл '+round(m.fiber)+'<br>'+
-      'День: '+Math.round(base.kcal+m.kcal)+'/'+g.kcal+' ккал · Б '+Math.round(base.protein+m.protein)+'/'+g.protein;
-  }
-
-  document.querySelectorAll('#pMeal [data-meal]').forEach(function(btn){
-    btn.onclick = function(){
-      meal = btn.dataset.meal;
-      document.querySelectorAll('#pMeal [data-meal]').forEach(function(b){
-        b.className = 'btn '+(b.dataset.meal === meal ? 'primary' : 'ghost');
-        b.style.flex = '1'; b.style.minWidth = '70px'; b.style.padding = '8px'; b.style.fontSize = '12px';
-      });
-    };
-  });
-  document.querySelectorAll('#pQuick [data-g]').forEach(function(b){
-    b.onclick = function(){ gramsEl.value = b.dataset.g; updateLive(); };
-  });
-  searchEl.oninput = drawResults;
-  gramsEl.oninput = updateLive;
-  document.getElementById('cancelBtn').onclick = closeModal;
-  document.getElementById('ov').onclick = function(e){ if(e.target.id === 'ov') closeModal(); };
-  document.getElementById('saveBtn').onclick = function(){
-    var it = selectedItem();
-    var grams = parseFloat(gramsEl.value) || 0;
-    if(!it){ showToast('Выбери продукт'); return; }
-    if(grams <= 0){ showToast('Укажи граммы'); return; }
-    var prod = it.staple ? ensureStaple(it.p) : it.p;
-    var list = getPlan(date).slice();
-    var row = { id: existing ? existing.id : uid(), productId: prod.id, grams: round(grams), meal: meal };
-    if(existing){
-      var idx = list.findIndex(function(e){ return e.id === existing.id; });
-      if(idx >= 0) list[idx] = row; else list.push(row);
-    } else {
-      list.push(row);
-    }
-    savePlan(date, list);
-    closeModal();
-    render();
-  };
-
-  drawResults();
-  drawPortions();
-  updateLive();
-}
-
-/* ---- действия над днём плана ---- */
-function openPlanDayMenu(date){
-  var root = document.getElementById('modalRoot');
-  var dates = planWeekDates(planWeekStart).filter(function(d){ return d !== date; });
-  var picked = {};
-  var hasItems = getPlan(date).length > 0;
-  // ближайший день с записями в дневнике до этой даты
-  var diaryFrom = shiftDate(date, -1);
-  for(var i=1;i<=14;i++){
-    var cand = shiftDate(date, -i);
-    if(getDiary(cand).length){ diaryFrom = cand; break; }
-  }
-
-  root.innerHTML =
-    '<div class="overlay" id="ov"><div class="sheet">'+
-      '<h2>'+fmtPlanDay(date)+'</h2>'+
-      '<div class="field"><label>Скопировать этот день на (план выбранных дней будет заменён)</label>'+
-        '<div style="display:flex;gap:6px;flex-wrap:wrap;" id="mDays">'+
-          dates.map(function(d){
-            return '<button type="button" class="btn ghost" data-d="'+d+'" style="flex:1;min-width:54px;padding:8px 4px;font-size:12px;">'+fmtPlanDay(d).split(',')[0]+' '+d.slice(8)+'</button>';
-          }).join('')+
-        '</div>'+
-        '<button class="btn ghost" id="mCopy" style="width:100%;margin-top:8px;padding:10px;font-size:13px;" '+(hasItems?'':'disabled')+'>Скопировать</button>'+
-      '</div>'+
-      '<div class="field"><label>Добавить в этот день из дневника</label>'+
-        '<input type="date" id="mFrom" value="'+diaryFrom+'">'+
-        '<button class="btn ghost" id="mFromBtn" style="width:100%;margin-top:8px;padding:10px;font-size:13px;">Добавить из дневника</button>'+
-      '</div>'+
-      '<div class="field"><label>Дневник</label>'+
-        '<button class="btn ghost" id="mToDiary" style="width:100%;padding:10px;font-size:13px;" '+(hasItems?'':'disabled')+'>Внести план дня в дневник ('+fmtPlanDay(date)+')</button>'+
-      '</div>'+
-      '<div class="sheet-actions">'+
-        '<button class="btn danger" id="mClear" '+(hasItems?'':'disabled')+'>Очистить день</button>'+
-        '<button class="btn ghost" id="cancelBtn">Закрыть</button>'+
-      '</div>'+
-    '</div></div>';
-
-  document.getElementById('cancelBtn').onclick = closeModal;
-  document.getElementById('ov').onclick = function(e){ if(e.target.id === 'ov') closeModal(); };
-
-  document.querySelectorAll('#mDays [data-d]').forEach(function(b){
-    b.onclick = function(){
-      var d = b.dataset.d;
-      if(picked[d]) delete picked[d]; else picked[d] = true;
-      b.className = 'btn '+(picked[d] ? 'primary' : 'ghost');
-      b.style.flex = '1'; b.style.minWidth = '54px'; b.style.padding = '8px 4px'; b.style.fontSize = '12px';
-    };
-  });
-  document.getElementById('mCopy').onclick = function(){
-    var targets = Object.keys(picked);
-    if(!targets.length){ showToast('Выбери дни'); return; }
-    var src = getPlan(date);
-    targets.forEach(function(d){
-      savePlan(d, src.map(function(e){ return Object.assign({}, e, { id: uid() }); }));
-    });
-    closeModal();
-    render();
-    showToast('Скопировано дней: '+targets.length);
-  };
-  document.getElementById('mFromBtn').onclick = function(){
-    var from = document.getElementById('mFrom').value;
-    if(!from){ showToast('Укажи дату'); return; }
-    var src = getDiary(from);
-    if(!src.length){ showToast('В этот день пусто'); return; }
-    var list = getPlan(date).slice();
-    src.forEach(function(e){
-      var row = { id: uid(), meal: e.meal || defaultMealByTime() };
-      if(e.custom){
-        row.custom = true; row.name = e.name; row.kcal = e.kcal; row.protein = e.protein; row.fat = e.fat; row.carbs = e.carbs;
-        if(e.grams != null) row.grams = e.grams;
-        if(e.fiber != null) row.fiber = e.fiber;
-        if(e.foodGroup) row.foodGroup = e.foodGroup;
-      } else {
-        row.productId = e.productId; row.grams = e.grams;
-      }
-      list.push(row);
-    });
-    savePlan(date, list);
-    closeModal();
-    render();
-    showToast('Добавлено: '+src.length);
-  };
-  document.getElementById('mToDiary').onclick = function(){
-    var src = getPlan(date);
-    if(!src.length) return;
-    var dest = getDiary(date).slice();
-    src.forEach(function(e){ dest.push(Object.assign({}, e, { id: uid() })); });
-    saveDiary(date, dest);
-    closeModal();
-    showToast('Внесено в дневник: '+src.length);
-  };
-  document.getElementById('mClear').onclick = function(){
-    savePlan(date, []);
-    closeModal();
-    render();
-  };
-}
-
-/* ---- список покупок ---- */
-function openShoppingList(){
-  var root = document.getElementById('modalRoot');
-  var mon = planWeekStart;
-  var today = todayStr();
-  var mode = (weekMonday(today) === mon) ? 'rest' : 'all'; // 'rest' — с сегодня, 'all' — вся неделя
-  var COOKED_RE = /вар[её]н|отвар|на воде/i;
-
-  function collect(){
-    var dates = planWeekDates(mon);
-    if(mode === 'rest') dates = dates.filter(function(d){ return d >= today; });
-    var agg = {}, skipped = 0;
-    dates.forEach(function(d){
-      getPlan(d).forEach(function(e){
-        var p = e.productId ? products.find(function(pr){ return pr.id === e.productId; }) : null;
-        if(!p){ skipped++; return; }
-        if(!agg[p.id]) agg[p.id] = { p: p, grams: 0 };
-        agg[p.id].grams += e.grams || 0;
-      });
-    });
-    var groups = {};
-    Object.keys(agg).forEach(function(id){
-      var it = agg[id];
-      ensureProductMeta(it.p);
-      var g = SHOP_GROUPS.indexOf(it.p.foodGroup) >= 0 ? it.p.foodGroup : 'other';
-      (groups[g] = groups[g] || []).push(it);
-    });
-    SHOP_GROUPS.forEach(function(g){
-      if(groups[g]) groups[g].sort(function(a,b){ return b.grams - a.grams; });
-    });
-    return { groups: groups, skipped: skipped, count: Object.keys(agg).length };
-  }
-  function qtyText(it){
-    var g = Math.ceil(it.grams / 10) * 10;
-    var s = (g >= 1000 ? (round(g/1000)+' кг') : (g+' г'));
-    if(it.p.portionName === 'штука' && it.p.portionGrams > 0){
-      s += ' ≈ '+Math.ceil(it.grams / it.p.portionGrams)+' шт';
-    }
-    if(COOKED_RE.test(it.p.name||'')) s += ' (готовый вес)';
-    return s;
-  }
-  function checkedMap(){ return shopChecked[mon] || {}; }
-  function saveChecked(map){
-    if(Object.keys(map).length) shopChecked[mon] = map; else delete shopChecked[mon];
-    var keys = Object.keys(shopChecked).sort().reverse().slice(0, 8);
-    var pruned = {};
-    keys.forEach(function(k){ pruned[k] = shopChecked[k]; });
-    shopChecked = pruned;
-    sSet('shopChecked', shopChecked);
-  }
-
-  function draw(){
-    var data = collect();
-    var checked = checkedMap();
-    var done = 0;
-    var body = '';
-    SHOP_GROUPS.forEach(function(g){
-      var items = data.groups[g];
-      if(!items) return;
-      body += '<div class="section-title" style="margin:12px 0 4px;font-size:12.5px;">'+SHOP_GROUP_LABELS[g]+'</div>';
-      items.forEach(function(it){
-        var on = !!checked[it.p.id];
-        if(on) done++;
-        body += '<div data-shop="'+it.p.id+'" style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px dotted var(--line);cursor:pointer;">'+
-          '<div style="flex:none;width:22px;height:22px;border-radius:6px;border:1.5px solid '+(on?'var(--green)':'var(--line)')+';background:'+(on?'var(--green)':'var(--surface)')+';color:#fff;font-size:14px;line-height:19px;text-align:center;">'+(on?'✓':'')+'</div>'+
-          '<div style="flex:1;font-size:14.5px;'+(on?'text-decoration:line-through;color:var(--muted);':'')+'">'+esc(it.p.name)+'</div>'+
-          '<div style="font-family:var(--mono);font-size:12px;color:var(--muted);text-align:right;">'+esc(qtyText(it))+'</div>'+
-        '</div>';
-      });
-    });
-    if(!data.count){
-      body = '<div class="empty" style="padding:24px 10px;">'+(mode==='rest' ? 'С сегодняшнего дня в плане пусто.' : 'В плане этой недели пусто.')+'<br>Добавь продукты в дни на вкладке «План».</div>';
-    }
-    root.innerHTML =
-      '<div class="overlay" id="ov"><div class="sheet">'+
-        '<h2>Список покупок · '+fmtWeekRange(mon)+'</h2>'+
-        '<div style="display:flex;gap:8px;margin-bottom:6px;">'+
-          '<button class="btn '+(mode==='rest'?'primary':'ghost')+'" data-mode="rest" style="padding:8px;font-size:12.5px;">С сегодня</button>'+
-          '<button class="btn '+(mode==='all'?'primary':'ghost')+'" data-mode="all" style="padding:8px;font-size:12.5px;">Вся неделя</button>'+
-        '</div>'+
-        body+
-        (data.count ? '<div style="font-size:12px;color:var(--muted);margin-top:12px;">Куплено '+done+' из '+data.count+'. Вес — как в плане: для варёных продуктов готовый.'+(data.skipped?' Записей без продукта не учтено: '+data.skipped+'.':'')+'</div>' : '')+
-        '<div class="sheet-actions">'+
-          '<button class="btn ghost" id="shReset" '+(data.count?'':'disabled')+' style="padding:10px;font-size:13px;">Сбросить</button>'+
-          '<button class="btn ghost" id="shCopy" '+(data.count?'':'disabled')+' style="padding:10px;font-size:13px;">Скопировать</button>'+
-          '<button class="btn primary" id="shClose" style="padding:10px;font-size:13px;">Закрыть</button>'+
-        '</div>'+
-      '</div></div>';
-
-    document.getElementById('ov').onclick = function(e){ if(e.target.id === 'ov') closeModal(); };
-    document.getElementById('shClose').onclick = closeModal;
-    root.querySelectorAll('[data-mode]').forEach(function(b){
-      b.onclick = function(){ mode = b.dataset.mode; draw(); };
-    });
-    root.querySelectorAll('[data-shop]').forEach(function(row){
-      row.onclick = function(){
-        var map = Object.assign({}, checkedMap());
-        var id = row.dataset.shop;
-        if(map[id]) delete map[id]; else map[id] = true;
-        saveChecked(map);
-        draw();
-      };
-    });
-    document.getElementById('shReset').onclick = function(){ saveChecked({}); draw(); };
-    document.getElementById('shCopy').onclick = function(){
-      var lines = ['Покупки · '+fmtWeekRange(mon)];
-      SHOP_GROUPS.forEach(function(g){
-        if(!data.groups[g]) return;
-        lines.push('', SHOP_GROUP_LABELS[g]+':');
-        data.groups[g].forEach(function(it){ lines.push('— '+it.p.name+' — '+qtyText(it)); });
-      });
-      copyText(lines.join('\n'), 'Список скопирован');
-    };
-  }
-  draw();
-}
-
-/* ---------------- автоподбор рациона ---------------- */
-var AUTO_SLOTS = {
-  2: ['lunch','dinner'],
-  3: ['breakfast','lunch','dinner'],
-  4: ['breakfast','lunch','dinner','snack']
-};
-var AUTO_SHARE = { breakfast:0.25, lunch:0.4, dinner:0.35, snack:0.15 };
-var AUTO_JUNK = /пельмен|блинчик|биточек|шницель|бургер|фри|шашлык|тортилья|сендвич|sandwich|плов|шарлотк|кафе|лодочка|цезарь|мороженое|торт|чипс/i;
-var AUTO_TEMPLATES = {
-  // carb/fruit — только если ctx.allowCarbFill; перекус по умолчанию только белок
-  breakfast: [{role:'prot', p:1}, {role:'carb', p:0.55}, {role:'fruit', p:0.35}],
-  lunch:     [{role:'prot', p:1}, {role:'carb', p:0.75}, {role:'veg', p:1}, {role:'fat', p:0.35}],
-  dinner:    [{role:'prot', p:1}, {role:'carb', p:0.55}, {role:'veg', p:1}, {role:'fat', p:0.35}],
-  snack:     [{role:'prot', p:1}, {role:'fat', p:0.2}, {role:'fruit', p:0.08}]
-};
-
-function autoNameKey(p){ return (p.name || '').trim().toLowerCase(); }
-
-function autoKind(p){
-  var n = (p.name || '').toLowerCase();
-  if((p.protein || 0) >= 50) return 'powder';
-  if(/яйц|яиц|белок яичн/.test(n)) return 'egg';
-  if(/(^|\s)сыр(\s|$)/.test(n)) return 'cheese';
-  if(/ветчин|колбас|сосиск|карпаччо|карпачо/.test(n)) return 'deli';
-  if(p.foodGroup === 'dairy' || /творог|йогурт|скир|skyr|кефир|пудинг|коктейль|напиток|neo|exponenta|teos|теос/.test(n)) return 'dairy';
-  return 'meat';
-}
-function autoRoleOf(p){
-  ensureProductMeta(p);
-  var k = p.kcal || 0, P = p.protein || 0, F = p.fat || 0, C = p.carbs || 0;
-  var grp = p.foodGroup, name = p.name || '';
-  if(k <= 0 || AUTO_JUNK.test(name)) return null;
-  if(/авокадо|масл|орех|арахис|миндал|семена|льна/i.test(name) && F >= 14 && P <= 30 && C <= 30) return 'fat';
-  if(grp === 'veg' && k <= 60) return 'veg';
-  if(grp === 'fruit' && k <= 110) return 'fruit';
-  if(/яйц|яиц/i.test(name) && P >= 11) return 'prot';
-  if(P >= 8 && (P * 4) / k >= 0.35) return 'prot';
-  if(grp === 'grain' && F <= 7 && k <= 380 && C >= 12) return 'carb';
-  return null;
-}
-function autoBuildPool(counts){
-  var pool = { prot:[], carb:[], veg:[], fruit:[], fat:[] };
-  function add(p, staple){
-    if(p.excludeFromPlan) return;
-    var role = autoRoleOf(p);
-    if(!role) return;
-    var c = counts[p.id] || 0;
-    var val = productValueScore(p);
-    var w = staple ? 1.2 : (0.6 + Math.min(c, 8) * 0.5 + (favorites.indexOf(p.id) >= 0 ? 3 : 0));
-    if(invGet(p.id) > 0) w += 2.5;
-    w += (val - 5) * 0.35; // полезнее → чаще в автоплане
-    pool[role].push({ key: autoNameKey(p), p: p, staple: !!staple, w: Math.max(0.05, w), kind: role === 'prot' ? autoKind(p) : null });
-  }
-  var names = {};
-  products.forEach(function(p){ names[autoNameKey(p)] = true; add(p, false); });
-  STAPLES.forEach(function(s){ if(!names[autoNameKey(s)]) add(s, true); });
-  return pool;
-}
-function autoBuildPoolFridge(counts){
-  var pool = { prot:[], carb:[], veg:[], fruit:[], fat:[] };
-  products.forEach(function(p){
-    if(p.excludeFromPlan) return;
-    if(invGet(p.id) <= 0) return;
-    var role = autoRoleOf(p);
-    if(!role) return;
-    var c = counts[p.id] || 0;
-    var val = productValueScore(p);
-    var w = 1 + Math.min(c, 8) * 0.3 + Math.min(invGet(p.id)/100, 5) + (val - 5) * 0.35;
-    pool[role].push({ key: autoNameKey(p), p: p, staple: false, w: Math.max(0.05, w), kind: role === 'prot' ? autoKind(p) : null });
-  });
-  return pool;
-}
-function autoProtWeight(kind, slot){
-  var main = (slot === 'lunch' || slot === 'dinner');
-  var w = main ? { meat:1, egg:0.25, dairy:0.15, powder:0, cheese:0.04, deli:0.2 } : { meat:0.08, egg:0.9, dairy:1, powder:0.4, cheese:0.35, deli:0.1 };
-  return w[kind] == null ? 0 : w[kind];
-}
-function autoPick(weights){
-  var sum = 0, i;
-  for(i=0;i<weights.length;i++) sum += weights[i];
-  if(sum <= 0) return -1;
-  var r = Math.random() * sum;
-  for(i=0;i<weights.length;i++){
-    r -= weights[i];
-    if(r <= 0) return i;
-  }
-  return weights.length - 1;
-}
-function autoMakeItem(c, role, slot, ctx){
-  var p = c.p;
-  if(p.excludeFromPlan) return null;
-  var dens = Math.max(p.kcal || 0, 1) / 100;
-  // приоритет: явная упаковка → порция-штука → вес из названия
-  var portionStep = packageStep(p);
-  if(!portionStep && productHasPortion(p) && /штук|ломт|кусок|упак/.test(p.portionName||'')) portionStep = p.portionGrams;
-  var step = portionStep || 5;
-  var minG, maxG, goalG;
-  if(role === 'prot'){
-    minG = 80 / dens; maxG = Math.min(400, 550 / dens);
-    if((p.protein || 0) >= 50){ minG = 15; maxG = 60; }
-    if(c.kind === 'cheese'){ minG = 30; maxG = 100; }
-    if(c.kind === 'deli'){ minG = 50; maxG = 150; }
-    goalG = 30 / Math.max((p.protein || 0) / 100, 0.05);
-  } else if(role === 'carb'){
-    minG = 100 / dens; maxG = 450 / dens; goalG = 250 / dens;
-  } else if(role === 'veg'){
-    minG = 100; maxG = 350; goalG = 250;
-  } else if(role === 'fruit'){
-    minG = 80; maxG = 300; goalG = 150;
-  } else {
-    minG = 40 / dens; maxG = Math.min(200 / dens, 150); goalG = 70 / dens;
-  }
-  if(portionStep >= 30){
-    // только целые упаковки / ломти: не предлагать 30 г хлеба если упаковка 300+
-    minG = portionStep;
-    // хлеб/батон и крупные упаковки — 1–2 шт; тунец 130 — до 2–3
-    var maxPacks = portionStep >= 250 ? 2 : (portionStep >= 100 ? 3 : (role === 'prot' ? 5 : 3));
-    maxG = portionStep * maxPacks;
-  }
-  minG = Math.max(step, Math.ceil(minG / step) * step);
-  maxG = Math.max(minG, Math.floor(maxG / step) * step);
-  var g = Math.min(maxG, Math.max(minG, Math.round(goalG / step) * step));
-  // если в холодильнике есть запас — предпочитаем не больше запаса (кратность)
-  var have = invGet(p.id);
-  if(have > 0 && portionStep >= 30){
-    var maxFromInv = Math.floor(have / portionStep) * portionStep;
-    if(maxFromInv >= portionStep) maxG = Math.min(maxG, maxFromInv);
-    else { /* нет целой упаковки дома — всё равно можно предложить купить 1 */ }
-  }
-  if(ctx && ctx.stock){
-    // «Чистим холодильник»: не больше остатка запаса, и только если хватает на минимальную порцию
-    var rem = ctx.stock[c.key];
-    if(rem == null) return null;
-    var capG = Math.floor(rem / step) * step;
-    if(capG < minG) return null;
-    maxG = Math.min(maxG, capG);
-    minG = Math.min(minG, maxG);
-  }
-  g = Math.min(maxG, Math.max(minG, g));
-  return {
-    c: c, p: p, role: role, slot: slot, g: g, min: minG, max: maxG, step: step, portion: !!portionStep,
-    k: (p.kcal || 0) / 100, pr: (p.protein || 0) / 100, fa: (p.fat || 0) / 100, ca: (p.carbs || 0) / 100,
-    fi: (p.fiber || 0) / 100, veg: p.foodGroup === 'veg' ? 1 : 0, fru: p.foodGroup === 'fruit' ? 1 : 0
-  };
-}
-function autoCost(items, base, G, fiberGoal, vfGoal){
-  var T = { k: base.kcal, p: base.protein, f: base.fat, c: base.carbs, fi: base.fiber, vf: base.vf };
-  var sk = {}, sp = {}, added = 0, i, it, g;
-  for(i=0;i<items.length;i++){
-    it = items[i]; g = it.g;
-    T.k += it.k * g; T.p += it.pr * g; T.f += it.fa * g; T.c += it.ca * g; T.fi += it.fi * g;
-    if(it.veg || it.fru) T.vf += g;
-    sk[it.slot] = (sk[it.slot] || 0) + it.k * g;
-    sp[it.slot] = (sp[it.slot] || 0) + it.pr * g;
-    added += it.k * g;
-  }
-  var cost = 0, e;
-  e = (T.k - G.kcal) / G.kcal;
-  // ккал: перебор наказывать сильно; недобор слабее — 1700 это среднее за неделю, не минимум дня
-  if(e > 0) cost += 9 * e;
-  else if(e < -0.15) cost += 0.8 * (-e - 0.15); // только сильный недобор
-  e = (T.p - G.protein) / G.protein;
-  if(e < -0.02) cost += 8 * (-e - 0.02); else if(e > 0.10) cost += 1.2 * (e - 0.10);
-  e = (T.f - G.fat) / G.fat;
-  if(e > 0) cost += 5 * e; else if(e < -0.35) cost += 1.2 * (-e - 0.35); // жиры важнее «дожать ккал»
-  e = (T.c - G.carbs) / G.carbs;
-  if(e > 0) cost += 5 * e;
-  // недобор углеводов почти не наказываем — У не цель добора
-  else if(e < -0.50) cost += 0.3 * (-e - 0.50);
-  if(T.fi < fiberGoal) cost += 6 * (fiberGoal - T.fi) / fiberGoal;
-  if(T.vf < vfGoal) cost += 3 * (vfGoal - T.vf) / vfGoal;
-  // равномерность по приёмам и белок в основных приёмах
-  var slots = Object.keys(sk), shareSum = 0, s;
-  slots.forEach(function(x){ shareSum += AUTO_SHARE[x] || 0.25; });
-  if(added > 0 && slots.length > 1){
-    slots.forEach(function(x){
-      cost += 1.2 * Math.abs(sk[x] / added - (AUTO_SHARE[x] || 0.25) / shareSum);
-    });
-  }
-  slots.forEach(function(x){
-    if(x !== 'snack' && sp[x] < 20) cost += 0.012 * (20 - sp[x]);
-  });
-  return { cost: cost, T: T };
-}
-function autoOptimize(items, base, G, fiberGoal, vfGoal){
-  var cur = autoCost(items, base, G, fiberGoal, vfGoal).cost;
-  for(var pass=0; pass<30; pass++){
-    var improved = false;
-    for(var i=0;i<items.length;i++){
-      var it = items[i];
-      var mults = it.portion ? [1] : [4, 2, 1];
-      for(var m=0;m<mults.length;m++){
-        for(var d=-1; d<=1; d+=2){
-          var ng = it.g + d * mults[m] * it.step;
-          if(ng < it.min || ng > it.max) continue;
-          var old = it.g;
-          it.g = ng;
-          var c = autoCost(items, base, G, fiberGoal, vfGoal).cost;
-          if(c < cur - 1e-9){ cur = c; improved = true; } else { it.g = old; }
-        }
-      }
-    }
-    if(!improved) break;
-  }
-  return cur;
-}
-function autoTrial(slots, pool, ctx){
-  var items = [], used = {};
-  slots.forEach(function(slot){
-    AUTO_TEMPLATES[slot].forEach(function(t){
-      // Углеводы/фрукты «ради калорий» — только allowCarbFill
-      if((t.role === 'carb' || t.role === 'fruit') && !ctx.allowCarbFill) return;
-      // Перекус при доборе белка / нормальной неделе: без фрукта
-      if(t.role === 'fruit' && (slot === 'snack' || ctx.snackProteinOnly)) return;
-      if(t.role === 'fat' && slot === 'snack' && !ctx.needFat) return;
-      if(Math.random() > t.p) return;
-      var list = pool[t.role];
-      if(!list || !list.length) return;
-      var allowDup = !ctx.stock && (t.role === 'veg' || t.role === 'fat');
-      var weights = list.map(function(c){
-        if(!allowDup && used[c.key]) return 0;
-        var w = c.w;
-        if(t.role === 'prot') w *= autoProtWeight(c.kind, slot);
-        var u = Math.min(ctx.usage[c.key] || 0, 3);
-        w *= ctx.style === 'variety' ? 1 / (1 + u) : (1 + 0.8 * u);
-        return w;
-      });
-      var idx = autoPick(weights);
-      if(idx < 0) return;
-      var item = autoMakeItem(list[idx], t.role, slot, ctx);
-      if(!item) return;
-      used[list[idx].key] = true;
-      items.push(item);
-    });
-  });
-  return items;
-}
-function autoVarPenalty(items, ctx){
-  var pen = 0;
-  items.forEach(function(it){
-    if(!it || it.role === 'veg' || it.role === 'fat') return;
-    var u = Math.min(ctx.usage[it.c.key] || 0, 3);
-    pen += ctx.style === 'variety' ? 0.10 * u : -0.04 * u;
-  });
-  return pen;
-}
-function autoFillDay(date, existing, pool, ctx, opts){
-  var G = activeGoals(date);
-  var fiberGoal = goals.fiberTarget || 28, vfGoal = goals.vegFruitTarget || 500;
-  var kGoal = goals.kcal || 1500;
-  var ex = computeTotals(existing);
-  var base = { kcal: ex.kcal, protein: ex.protein, fat: ex.fat, carbs: ex.carbs, fiber: ex.fiber, vf: ex.veg + ex.fruit };
-  var present = {};
-  existing.forEach(function(e){ present[e.meal || 'lunch'] = true; });
-  var slots = AUTO_SLOTS[opts.meals].filter(function(s){ return !present[s]; });
-  var protGap = G.protein - base.protein;
-  var fatGap = (G.fat || 60) - base.fat;
-  var fiberGap = fiberGoal - base.fiber;
-
-  // недельный баланс ккал — 1700 это среднее, не минимум каждого дня
-  var weekAvg = weeklyMacroAverages(date, 7);
-  var weekKcalOk = weekAvg && weekAvg.days >= 3 && weekAvg.kcal >= kGoal * 0.90;
-  var weekKcalVeryLow = weekAvg && weekAvg.days >= 3 && weekAvg.kcal < kGoal * 0.82;
-  var weekFatLow = weekAvg && weekAvg.days >= 3 && weekAvg.fat < 30;
-
-  // Если неделя уже около 1700, «добивать» день до 1700 не нужно.
-  // Эффективная цель дня ≈ не выше того, что оставляет неделю у ориентира.
-  var dayKcalTarget = kGoal;
-  if(weekKcalOk){
-    dayKcalTarget = Math.min(kGoal, Math.max(1200, Math.round(kGoal * 0.88)));
-  }
-  var kcalGap = dayKcalTarget - base.kcal;
-
-  // Углеводы/фрукты ТОЛЬКО при сильном недельном недоборе ккал и закрытом белке
-  ctx.needProt = protGap > 8;
-  ctx.needFiber = fiberGap > 10;
-  ctx.needFat = fatGap > 12 || weekFatLow;
-  ctx.allowCarbFill = !!(weekKcalVeryLow && protGap < 8 && !ctx.needFat);
-  // перекус: при недоборе белка — строго белок (и жир если нужен), без банана
-  ctx.snackProteinOnly = ctx.needProt || weekKcalOk;
-
-  // добор слотов: только реальные пробелы (белок/жир/сильный провал недели)
-  if(!slots.length){
-    if(!present.snack && (protGap > 12 || ctx.needFat || weekKcalVeryLow)) slots = ['snack'];
-  }
-  // неделя по ккал ок + белок почти ок → ничего не добираем «до 1700»
-  if(protGap < 10 && !ctx.needFat && fiberGap < 12 && weekKcalOk) slots = [];
-  if(protGap < 10 && !ctx.needFat && !weekKcalVeryLow && kcalGap < 250) slots = [];
-  if(protGap < 8 && !ctx.needFat && kcalGap < 100) slots = [];
-
-  var result = { date: date, existingCount: existing.length, added: [], T: base, note: '' };
-  if(!slots.length){
-    result.note = existing.length
-      ? (weekKcalOk && protGap < 10
-          ? 'Неделя по ккал около цели (~'+round(weekAvg.kcal)+'), белок почти закрыт — банан/углеводы не добавляем'
-          : (protGap < 10
-              ? 'Белок в порядке — добор только ради ккал дня не нужен'
-              : 'Приёмы заполнены'))
-      : 'Нечего добавлять';
-    return result;
-  }
-  var best = null;
-  for(var t=0; t<ctx.trials; t++){
-    var items = autoTrial(slots, pool, ctx);
-    if(!items.length) continue;
-    // жёстко: без углеводов/фруктов, если не разрешён carb-fill
-    if(!ctx.allowCarbFill){
-      items = items.filter(function(it){ return it.role !== 'carb' && it.role !== 'fruit'; });
-    }
-    // добор белка: оставляем prot (+ fat если нужен, + veg если клетчатка)
-    if(ctx.snackProteinOnly || ctx.needProt){
-      items = items.filter(function(it){
-        if(it.role === 'prot') return true;
-        if(it.role === 'fat' && ctx.needFat) return true;
-        if(it.role === 'veg' && ctx.needFiber) return true;
-        return false;
-      });
-    }
-    if(!items.length) continue;
-    var cost = autoOptimize(items, base, G, fiberGoal, vfGoal);
-    var total = cost + autoVarPenalty(items, ctx);
-    // сильный штраф за любой carb/fruit при доборе белка
-    if(!ctx.allowCarbFill){
-      items.forEach(function(it){
-        if(it.role === 'carb' || it.role === 'fruit') total += 8;
-      });
-    }
-    if(!best || total < best.total){ best = { items: items, total: total }; }
-    if(best.total < 0.02) break;
-  }
-  if(!best){ result.note = 'Не из чего подбирать'; return result; }
-  var fin = autoCost(best.items, base, G, fiberGoal, vfGoal);
-  result.T = { kcal: fin.T.k, protein: fin.T.p, fat: fin.T.f, carbs: fin.T.c, fiber: fin.T.fi, vf: fin.T.vf };
-  result.added = best.items.map(function(it){
-    return { p: it.p, staple: it.c.staple, grams: it.g, meal: it.slot };
-  });
-  return result;
-}
-function autoGenerate(scope, date, opts){
-  var counts = productUsageCounts();
-  var pool = (opts.style === 'fridge') ? autoBuildPoolFridge(counts) : autoBuildPool(counts);
-  var weekDates = planWeekDates(planWeekStart);
-  var today = todayStr();
-  var dates = scope === 'day' ? [date] : weekDates.filter(function(d){ return opts.range === 'all' || d >= today; });
-  var usage = {};
-  function bump(p){ var k = autoNameKey(p); usage[k] = (usage[k] || 0) + 1; }
-  weekDates.forEach(function(d){
-    if(dates.indexOf(d) >= 0 && opts.replace) return;
-    getPlan(d).forEach(function(e){
-      var p = e.productId ? products.find(function(pr){ return pr.id === e.productId; }) : null;
-      if(p) bump(p);
-    });
-  });
-  var ctx = { usage: usage, style: opts.style, trials: scope === 'day' ? 260 : 140 };
-  if(opts.style === 'fridge'){
-    // остаток запаса по продуктам; расходуется по мере заполнения дней
-    ctx.stock = {};
-    products.forEach(function(p){
-      var h = invGet(p.id);
-      if(h > 0){ var k = autoNameKey(p); ctx.stock[k] = Math.max(ctx.stock[k] || 0, h); }
-    });
-    weekDates.forEach(function(d){
-      if(dates.indexOf(d) >= 0 && opts.replace) return;
-      getPlan(d).forEach(function(e){
-        var p = e.productId ? products.find(function(pr){ return pr.id === e.productId; }) : null;
-        if(!p) return;
-        var k = autoNameKey(p);
-        if(ctx.stock[k] != null) ctx.stock[k] -= (e.grams || 0);
-      });
-    });
-  }
-  var out = [];
-  dates.forEach(function(d){
-    var existing = opts.replace ? [] : getPlan(d);
-    var r = autoFillDay(d, existing, pool, ctx, opts);
-    r.replaced = !!opts.replace && getPlan(d).length > 0;
-    r.added.forEach(function(a){
-      bump(a.p);
-      if(ctx.stock){
-        var k = autoNameKey(a.p);
-        if(ctx.stock[k] != null) ctx.stock[k] -= a.grams;
-      }
-    });
-    out.push(r);
-  });
-  return out;
-}
-
-function openAutoPlan(scope, date){
-  var root = document.getElementById('modalRoot');
-  var today = todayStr();
-  var opts = {
-    meals: 3, replace: false, style: 'repeat',
-    range: (scope === 'week' && weekMonday(today) === planWeekStart) ? 'rest' : 'all'
-  };
-  var result = [], open = {};
-  var hasToday = weekMonday(today) === planWeekStart;
-
-  function gen(){
-    try{ result = autoGenerate(scope, date, opts); }
-    catch(e){ result = []; showToast('Ошибка подбора'); }
-  }
-  function chips(key, arr){
-    return '<div style="display:flex;gap:6px;flex-wrap:wrap;">'+arr.map(function(a){
-      return '<button type="button" class="btn '+(String(opts[key]) === String(a[0]) ? 'primary' : 'ghost')+'" data-opt="'+key+'" data-val="'+a[0]+'" style="flex:1;min-width:64px;padding:8px 4px;font-size:12px;">'+a[1]+'</button>';
-    }).join('')+'</div>';
-  }
-  function dayLine(r){
-    var G = baseGoals(r.date), T = r.T;
-    var fiberGoal = goals.fiberTarget || 28, vfGoal = goals.vegFruitTarget || 500;
-    var bad = T.kcal > G.kcal * 1.04 || T.protein < G.protein * 0.93 || (opts.style === 'fridge' && T.kcal < G.kcal * 0.9);
-    return (bad ? '⚠ ' : '')+Math.round(T.kcal)+' ккал · Б '+Math.round(T.protein)+' · Ж '+Math.round(T.fat)+' · У '+Math.round(T.carbs)+
-      ' · Кл '+round(T.fiber)+' · О+Ф '+Math.round(T.vf);
-  }
-  function draw(){
-    var G = baseGoals(date || planWeekStart);
-    var body = '';
-    var anyAdded = false;
-    result.forEach(function(r){
-      if(r.added.length) anyAdded = true;
-      var isOpen = scope === 'day' || open[r.date];
-      body += '<div class="card" style="padding:10px 12px;margin-bottom:8px;">'+
-        '<div '+(scope === 'week' ? 'data-ropen="'+r.date+'" style="cursor:pointer;"' : '')+'>'+
-          '<div style="display:flex;justify-content:space-between;align-items:baseline;">'+
-            '<div style="font-size:14px;font-weight:600;">'+fmtPlanDay(r.date)+'</div>'+
-            '<div style="font-size:11px;color:var(--muted);">'+(r.added.length ? '+'+r.added.length+' поз.' : '')+(r.replaced ? ' · заменит план' : '')+(r.existingCount && !r.replaced ? ' · уже '+r.existingCount : '')+'</div>'+
-          '</div>'+
-          '<div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5;">'+(r.added.length || r.existingCount ? dayLine(r) : '')+'</div>'+
-          (r.note && !r.added.length ? '<div style="font-size:12px;color:var(--muted);margin-top:4px;">'+r.note+'</div>' : '')+
-        '</div>';
-      if(isOpen && r.added.length){
-        MEAL_ORDER.forEach(function(m){
-          var items = r.added.filter(function(a){ return a.meal === m; });
-          if(!items.length) return;
-          body += '<div class="section-title" style="margin:8px 0 2px;font-size:12px;">'+MEAL_LABELS[m]+'</div>';
-          items.forEach(function(a){
-            var k = (a.p.kcal || 0) * a.grams / 100;
-            var portion = productHasPortion(a.p) ? formatPortionLine(a.p, a.grams) : null;
-            if(portion) portion = portion.replace(/ штука$/, ' шт');
-            body += '<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0;">'+
-              '<span>'+esc(a.p.name)+'</span>'+
-              '<span style="font-family:var(--mono);color:var(--muted);white-space:nowrap;">'+round(a.grams)+' г'+(portion ? ' ('+esc(portion)+')' : '')+' · '+Math.round(k)+'</span></div>';
-          });
-        });
-      }
-      body += '</div>';
-    });
-    if(!result.length) body = '<div class="empty" style="padding:20px;">Нет дней для подбора</div>';
-
-    root.innerHTML =
-      '<div class="overlay" id="ov"><div class="sheet">'+
-        '<h2>'+(scope === 'day' ? 'Добрать день · '+fmtPlanDay(date) : 'Собрать неделю · '+fmtWeekRange(planWeekStart))+'</h2>'+
-        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Цель: '+G.kcal+' ккал · Б '+G.protein+' · Ж '+G.fat+' · У '+G.carbs+' · клетчатка '+(goals.fiberTarget||28)+' · овощи+фр. '+(goals.vegFruitTarget||500)+' г</div>'+
-        (scope === 'week' && hasToday
-          ? '<div class="field"><label>Дни</label>'+chips('range', [['rest','С сегодня'],['all','Вся неделя']])+'</div>' : '')+
-        '<div class="field"><label>Приёмов пищи</label>'+chips('meals', [[2,'2'],[3,'3'],[4,'4']])+'</div>'+
-        '<div class="field"><label>Стиль</label>'+chips('style', [['repeat','Минимум готовки'],['variety','Разнообразнее'],['fridge','Чистим холодильник']])+'</div>'+
-        '<div class="field"><label>Уже запланированное</label>'+chips('replace', [['false','Оставить, добрать'],['true','Заменить']])+'</div>'+
-        body+
-        '<div class="sheet-actions">'+
-          '<button class="btn ghost" id="aCancel" style="padding:10px;font-size:13px;">Отмена</button>'+
-          '<button class="btn ghost" id="aReroll" style="padding:10px;font-size:13px;">Другой вариант</button>'+
-          '<button class="btn primary" id="aApply" style="padding:10px;font-size:13px;" '+(anyAdded?'':'disabled')+'>Применить</button>'+
-        '</div>'+
-      '</div></div>';
-
-    document.getElementById('ov').onclick = function(e){ if(e.target.id === 'ov') closeModal(); };
-    document.getElementById('aCancel').onclick = closeModal;
-    document.getElementById('aReroll').onclick = function(){ gen(); draw(); };
-    root.querySelectorAll('[data-opt]').forEach(function(b){
-      b.onclick = function(){
-        var k = b.dataset.opt, v = b.dataset.val;
-        if(k === 'meals') opts.meals = parseInt(v, 10);
-        else if(k === 'replace') opts.replace = (v === 'true');
-        else opts[k] = v;
-        gen(); draw();
-      };
-    });
-    root.querySelectorAll('[data-ropen]').forEach(function(el){
-      el.onclick = function(){ open[el.dataset.ropen] = !open[el.dataset.ropen]; draw(); };
-    });
-    document.getElementById('aApply').onclick = function(){
-      var n = 0;
-      result.forEach(function(r){
-        if(!r.added.length) return;
-        var rows = r.added.map(function(a){
-          var prod = a.staple ? ensureStaple(a.p) : a.p;
-          return { id: uid(), productId: prod.id, grams: round(a.grams), meal: a.meal };
-        });
-        var base = opts.replace ? [] : getPlan(r.date).slice();
-        savePlan(r.date, base.concat(rows));
-        n++;
-      });
-      if(scope === 'day') planOpenDay = date;
-      closeModal();
-      render();
-      showToast('Заполнено дней: '+n);
-    };
-  }
-  gen();
-  draw();
-}
-
 /* ---------------- nav ---------------- */
 try{
   document.querySelectorAll('nav.tabs button').forEach(function(b){

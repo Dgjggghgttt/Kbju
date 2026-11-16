@@ -4546,43 +4546,38 @@ function openMeasureForm(existing){
 function openGoalsForm(){
   const root = document.getElementById('modalRoot');
   var estM = estimateMaintenanceKcal();
-  var estLine;
-  if(estM){
-    var plan = Math.max(1200, estM.kcal - Math.round(0.5 * 7700 / 7));
-    estLine = 'Оценка поддержки: <b>'+estM.kcal+' ккал</b>';
-    estLine += '<br><span style="color:var(--muted);">'+esc(estM.detail||'')+'</span>';
-    estLine += '<br><span style="color:var(--muted);">План −0,5 кг/нед: ~'+Math.round(plan)+' ккал (белок 150, жир 30–50, рост плана только углями). Пол 1200.</span>';
-  } else {
-    estLine = 'Недостаточно данных для оценки поддержки (нужны записи еды и ≥2 взвешивания за 2–4 нед.)';
-  }
+  var autoSupport = estM && estM.kcal ? estM.kcal : (goals.maintenanceKcal || 2000);
+  var autoPlan = Math.max(1200, Math.round(autoSupport - Math.round(0.5 * 7700 / 7)));
+  var autoMacros = macrosFromDeficitPlan(autoPlan);
+
   root.innerHTML = `
     <div class="overlay" id="ov">
       <div class="sheet">
         <h2>Дневные цели</h2>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.45;">
-          Одна норма на все дни. Рекомендация: <b>1500</b> · Б150 · Ж45 · У125 (среднее за неделю).
-        </div>
-        <div class="card" style="margin-bottom:12px;padding:10px 12px;font-size:13px;line-height:1.4;">${estLine}</div>
-        <div class="field"><label>Калории</label><input id="gKcal" type="number" value="${goals.kcal}"></div>
-        <div class="row4">
-          <div class="field"><label>Белки</label><input id="gProtein" type="number" value="${goals.protein}"></div>
-          <div class="field"><label>Жиры</label><input id="gFat" type="number" value="${goals.fat}"></div>
-          <div class="field"><label>Углеводы</label><input id="gCarbs" type="number" value="${goals.carbs}"></div>
-        </div>
-        <div class="field"><label>Калории поддержания (ручной запасной)</label><input id="gMaint2" type="number" inputmode="decimal" value="${goals.maintenanceKcal||''}" placeholder="если авто не считает"></div>
-        <label style="display:flex;align-items:flex-start;gap:10px;margin:10px 0 8px;font-size:13px;line-height:1.4;">
+        <label style="display:flex;align-items:flex-start;gap:10px;margin:4px 0 12px;font-size:13px;line-height:1.4;">
           <input type="checkbox" id="gAutoW" ${goals.autoFromWeight?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>Автоцели от веса (−0,5 кг/нед)</b><br><span style="color:var(--muted);font-size:12px;">Поддержка по еде+весу за 14 и 30 дней. Дефицит ≈ 550 ккал. Белок 150, жир 30–50, рост только углями, угли можно 0. Пол 1200, без верхнего потолка.</span></span>
+          <span><b>Автоматический расчёт от веса</b><br><span style="color:var(--muted);font-size:12px;">Цель рассчитывается для снижения примерно на 0,5 кг в неделю.</span></span>
         </label>
-        <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
+        <div id="autoGoalsView" class="card" style="margin-bottom:12px;padding:12px 14px;">
+          <div style="font-size:13px;color:var(--muted);">Цель на день</div>
+          <div style="font-size:22px;font-weight:700;margin:2px 0 10px;">${autoMacros.kcal} ккал</div>
+          <div style="font-size:13px;">Б ${autoMacros.protein} г · Ж ${autoMacros.fat} г · У ${autoMacros.carbs} г</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:10px;">Поддержание: <b style="color:var(--ink);">${Math.round(autoSupport)} ккал</b></div>
+        </div>
+        <div id="manualGoalsView">
+          <div class="field"><label>Калории</label><input id="gKcal" type="number" value="${goals.kcal}"></div>
+          <div class="row4">
+            <div class="field"><label>Белки</label><input id="gProtein" type="number" value="${goals.protein}"></div>
+            <div class="field"><label>Жиры</label><input id="gFat" type="number" value="${goals.fat}"></div>
+            <div class="field"><label>Углеводы</label><input id="gCarbs" type="number" value="${goals.carbs}"></div>
+          </div>
+          <div class="field"><label>Калории поддержания</label><input id="gMaint2" type="number" inputmode="decimal" value="${goals.maintenanceKcal||''}" placeholder="например, 2200"></div>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:10px;margin:10px 0 8px;font-size:13px;line-height:1.4;">
           <input type="checkbox" id="g8020" ${goals.rule8020!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>80/20 — 1 день поддержки в неделю</b><br><span style="color:var(--muted);font-size:12px;">В этот день норма = поддержание. Переел — со следующего дня обычный план, без отработки голодом.</span></span>
+          <span><b>80/20 — 1 день поддержки в неделю</b><br><span style="color:var(--muted);font-size:12px;">В выбранный день калорийность равна поддержанию. На следующий день возвращается обычная цель.</span></span>
         </label>
-        <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
-          <input type="checkbox" id="gWoAuto" ${goals.workoutAuto!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>Авто-упражнения</b><br><span style="color:var(--muted);font-size:12px;">В день тренировки подставляет упражнения с прошлой (тот же день недели) с целью по прогрессии. После факта — совет +вес или +повторы.</span></span>
-        </label>
-        <div class="field"><label>День поддержки</label>
+        <div class="field" id="maintenanceDayField"><label>День поддержки</label>
           <select id="gMaintDay" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;background:var(--surface);">
             <option value="0" ${goals.maintenanceWeekday===0?'selected':''}>Воскресенье</option>
             <option value="1" ${goals.maintenanceWeekday===1?'selected':''}>Понедельник</option>
@@ -4593,60 +4588,55 @@ function openGoalsForm(){
             <option value="6" ${goals.maintenanceWeekday===6?'selected':''}>Суббота</option>
           </select>
         </div>
+        <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
+          <input type="checkbox" id="gWoAuto" ${goals.workoutAuto!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
+          <span><b>Авто-упражнения</b><br><span style="color:var(--muted);font-size:12px;">Подставлять план тренировки с учётом прошлых результатов.</span></span>
+        </label>
         <label style="display:flex;align-items:flex-start;gap:10px;margin:10px 0 12px;font-size:13px;line-height:1.4;">
           <input type="checkbox" id="gSmart" ${goals.smartAdjust?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>Умная корректировка</b><br><span style="color:var(--muted);font-size:12px;">Урезать план после переедания (не в дни поддержки). Выкл = спокойный режим.</span></span>
+          <span><b>Умная корректировка</b><br><span style="color:var(--muted);font-size:12px;">Учитывать переедание в последующие дни. Выкл. — спокойный режим.</span></span>
         </label>
-        <button class="btn ghost" id="fillRec" style="width:100%;margin-bottom:10px;">Подставить 1500 / 150 / 45 / 125</button>
-        <button class="btn ghost" id="fillAuto" style="width:100%;margin-bottom:10px;">Рассчитать от поддержания (−0,5 кг/нед)</button>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
           <button class="btn primary" id="saveBtn">Сохранить</button>
         </div>
       </div>
     </div>`;
+
+  function refreshGoalsMode(){
+    var auto = document.getElementById('gAutoW').checked;
+    document.getElementById('autoGoalsView').style.display = auto ? 'block' : 'none';
+    document.getElementById('manualGoalsView').style.display = auto ? 'none' : 'block';
+    document.getElementById('maintenanceDayField').style.display = document.getElementById('g8020').checked ? 'block' : 'none';
+  }
+  document.getElementById('gAutoW').onchange = refreshGoalsMode;
+  document.getElementById('g8020').onchange = refreshGoalsMode;
+  refreshGoalsMode();
+
   document.getElementById('cancelBtn').onclick = closeModal;
   document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
-  document.getElementById('fillRec').onclick = function(){
-    document.getElementById('gKcal').value = 1500;
-    document.getElementById('gProtein').value = 150;
-    document.getElementById('gFat').value = 45;
-    document.getElementById('gCarbs').value = 125;
-  };
-  document.getElementById('fillAuto').onclick = function(){
-    var est = estimateMaintenanceKcal();
-    var mk = est && est.kcal ? est.kcal : (parseFloat(document.getElementById('gMaint2').value) || goals.maintenanceKcal || 2000);
-    if(est && est.kcal) document.getElementById('gMaint2').value = est.kcal;
-    goals.maintenanceKcal = mk;
-    var plan = Math.max(1200, Math.round(mk - Math.round(0.5 * 7700 / 7)));
-    var mm = macrosFromDeficitPlan(plan);
-    document.getElementById('gKcal').value = mm.kcal;
-    document.getElementById('gProtein').value = mm.protein;
-    document.getElementById('gFat').value = mm.fat;
-    document.getElementById('gCarbs').value = mm.carbs;
-    document.getElementById('gAutoW').checked = true;
-    showToast('Поддержка ~'+mk+' → план '+mm.kcal+' ккал (Б'+mm.protein+' Ж'+mm.fat+' У'+mm.carbs+')');
-  };
   document.getElementById('saveBtn').onclick = function(){
-    goals.kcal = parseFloat(document.getElementById('gKcal').value)||goals.kcal;
-    goals.protein = parseFloat(document.getElementById('gProtein').value)||goals.protein;
-    goals.fat = parseFloat(document.getElementById('gFat').value)||goals.fat;
-    goals.carbs = parseFloat(document.getElementById('gCarbs').value)||goals.carbs;
-    var mk2 = parseFloat(document.getElementById('gMaint2').value);
-    if(mk2 > 0) goals.maintenanceKcal = mk2;
-    goals.autoFromWeight = !!(document.getElementById('gAutoW') && document.getElementById('gAutoW').checked);
-    goals.rule8020 = !!(document.getElementById('g8020') && document.getElementById('g8020').checked);
-    goals.workoutAuto = !!(document.getElementById('gWoAuto') && document.getElementById('gWoAuto').checked);
-    goals.maintenanceWeekday = parseInt(document.getElementById('gMaintDay').value, 10);
-    if(isNaN(goals.maintenanceWeekday)) goals.maintenanceWeekday = 0;
-    goals.smartAdjust = !!(document.getElementById('gSmart') && document.getElementById('gSmart').checked);
-    if(goals.autoFromWeight){
+    goals.autoFromWeight = !!document.getElementById('gAutoW').checked;
+    if(!goals.autoFromWeight){
+      goals.kcal = parseFloat(document.getElementById('gKcal').value)||goals.kcal;
+      goals.protein = parseFloat(document.getElementById('gProtein').value)||goals.protein;
+      goals.fat = parseFloat(document.getElementById('gFat').value)||goals.fat;
+      goals.carbs = parseFloat(document.getElementById('gCarbs').value)||goals.carbs;
+      var mk2 = parseFloat(document.getElementById('gMaint2').value);
+      if(mk2 > 0) goals.maintenanceKcal = mk2;
+    } else {
       var est2 = estimateMaintenanceKcal();
-      if(est2 && est2.kcal) goals.maintenanceKcal = est2.kcal;
-      var plan = deficitPlanKcal();
+      var mk = est2 && est2.kcal ? est2.kcal : (goals.maintenanceKcal || 2000);
+      goals.maintenanceKcal = mk;
+      var plan = Math.max(1200, Math.round(mk - Math.round(0.5 * 7700 / 7)));
       var mm = macrosFromDeficitPlan(plan);
       goals.kcal = mm.kcal; goals.protein = mm.protein; goals.fat = mm.fat; goals.carbs = mm.carbs;
     }
+    goals.rule8020 = !!document.getElementById('g8020').checked;
+    goals.workoutAuto = !!document.getElementById('gWoAuto').checked;
+    goals.maintenanceWeekday = parseInt(document.getElementById('gMaintDay').value, 10);
+    if(isNaN(goals.maintenanceWeekday)) goals.maintenanceWeekday = 0;
+    goals.smartAdjust = !!document.getElementById('gSmart').checked;
     goals.trainKcal = goals.kcal;
     goals.trainProtein = goals.protein;
     goals.trainFat = goals.fat;

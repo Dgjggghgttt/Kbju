@@ -474,7 +474,7 @@ function weeklyMacroAverages(endDate, n){
  */
 function buildTrainingDiagnostics(){
   var items=[], sessions=0,totalSets=0,rirLow=0,lastSession=null,missing=[];
-  for(var i=6;i>=0;i--){
+  for(var i=7;i>=1;i--){
     var d=shiftDate(todayStr(),-i);
     getWorkouts(d).forEach(function(w){
       if(!w || !w.done) return;
@@ -501,7 +501,8 @@ function buildTrainingDiagnostics(){
 
 function renderTrainingDiagnostics(){
   var items=buildTrainingDiagnostics();
-  return '<div class="section-title">Автопроверка тренировок</div><div class="card auto-check-card">'+items.map(function(x){return '<div class="auto-check-item '+(x.level==='warn'?'auto-check-warn':(x.level==='ok'?'auto-check-ok-row':'auto-check-info'))+'"><b>'+x.title+'</b><div>'+x.text+'</div></div>';}).join('')+'</div>';
+  var period=fmtDateHuman(shiftDate(todayStr(),-7))+' — '+fmtDateHuman(shiftDate(todayStr(),-1));
+  return '<div class="section-title">Автопроверка тренировок</div><div class="card auto-check-card"><div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Период: '+period+' · без сегодняшнего дня</div>'+items.map(function(x){return '<div class="auto-check-item '+(x.level==='warn'?'auto-check-warn':(x.level==='ok'?'auto-check-ok-row':'auto-check-info'))+'"><b>'+x.title+'</b><div>'+x.text+'</div></div>';}).join('')+'</div>';
 }
 
 function buildTemplateCard(){
@@ -3204,7 +3205,7 @@ function exercisePlateaus(daysBack){
 }
 
 function weeklyMuscleLoad(days){
-  var out={},start=shiftDate(todayStr(),-(days-1));
+  var out={},start=shiftDate(todayStr(),-days);
   for(var i=0;i<days;i++){var d=shiftDate(start,i);getWorkouts(d).forEach(function(w){if(!w.done)return;var x=effectiveMuscleSets(w);Object.keys(x).forEach(function(k){out[k]=(out[k]||0)+x[k];});});}
   return out;
 }
@@ -3215,7 +3216,7 @@ function renderTrainingInsights(){
   var lines=rows.map(function(k){var v=round(load[k]),state=v<targets.min?'ниже ориентира':(v>targets.max?'выше ориентира':(v>=targets.min?'в диапазоне':''));return '<div class="entry"><div class="name">'+escapeHTML(k)+'<div style="font-size:11px;color:var(--muted)">'+state+'</div></div><div class="kcal">'+v+' / '+targets.min+'–'+targets.max+'</div></div>';}).join('');
   var high=rows.filter(function(k){return load[k]>targets.max;});
   var sessions=0,totalSets=0,lastDate=null;
-  for(var i=0;i<7;i++){var d=shiftDate(todayStr(),-i);var ws=getWorkouts(d).filter(function(w){return w&&w.done;});if(ws.length){sessions++;if(!lastDate||d>lastDate)lastDate=d;}ws.forEach(function(w){totalSets+=parseSetArray(w.sets).length;});}
+  for(var i=1;i<=7;i++){var d=shiftDate(todayStr(),-i);var ws=getWorkouts(d).filter(function(w){return w&&w.done;});if(ws.length){sessions++;if(!lastDate||d>lastDate)lastDate=d;}ws.forEach(function(w){totalSets+=parseSetArray(w.sets).length;});}
   var plateauCount=exercisePlateaus(56).length;
   var loadState='Недостаточно данных';
   var advice='Записывай выполненные подходы — приложение постепенно соберёт базу для оценки.';
@@ -3229,15 +3230,17 @@ function renderTrainingInsights(){
   var bicepsLoad=round(load['Бицепс']||0);
   var bicepsState=bicepsLoad<8?'ниже ориентира':(bicepsLoad>16?'выше ориентира':'в диапазоне');
   var bicepsAdvice=bicepsLoad<8?'Приоритет рук: объём пока ниже общего ориентира. Повышай его постепенно, по 1 рабочему подходу, а не резко.':(bicepsLoad>16?'Объём уже высокий — не добавляй подходы на бицепс на этой неделе.':'Объём бицепса в ориентировочном диапазоне. Сохраняй качество повторов и прогрессируй постепенно.');
+  var period=fmtDateHuman(shiftDate(todayStr(),-7))+' — '+fmtDateHuman(shiftDate(todayStr(),-1));
   return '<div class="section-title">Автоматический анализ тренировок</div><div class="card">'+
-    '<div class="entry"><div class="name">Оценка нагрузки за 7 дней</div><div class="kcal">'+loadState+'</div></div>'+ 
+    '<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Период: '+period+' · без сегодняшнего дня</div>'+
+    '<div class="entry"><div class="name">Оценка нагрузки за 7 полных дней</div><div class="kcal">'+loadState+'</div></div>'+ 
     '<div class="entry"><div class="name">Бицепс · приоритет</div><div class="kcal">'+bicepsLoad+' / 8–16</div></div>'+
     '<div style="font-size:11.5px;color:var(--muted);line-height:1.4;margin:0 0 6px;">'+bicepsState+'. '+bicepsAdvice+'</div>'+
     '<div class="entry"><div class="name">Тренировочных дней</div><div class="kcal">'+sessions+' / 7</div></div>'+
     '<div class="entry"><div class="name">Рабочих подходов</div><div class="kcal">'+totalSets+'</div></div>'+
     '<div class="entry"><div class="name">Последняя тренировка</div><div class="kcal">'+lastText+'</div></div>'+
     '<div style="font-size:12px;color:var(--muted);line-height:1.5;padding:7px 0 10px;">'+advice+'</div>'+
-    (lines?'<div style="font-size:12px;color:var(--muted);margin:4px 0 6px;">Примерный объём по мышцам за неделю · ориентир 8–16 эффективных подходов</div>'+lines:'<div class="empty">Пока нет завершённых тренировок с подходами</div>')+
+    (lines?'<div style="font-size:12px;color:var(--muted);margin:4px 0 6px;">Примерный объём по мышцам за 7 полных дней · ориентир 8–16 эффективных подходов</div>'+lines:'<div class="empty">Пока нет завершённых тренировок с подходами</div>')+
     '<div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.45;">Оценка строится по записанным тренировкам, числу подходов, недельному объёму и динамике упражнений. Самочувствие, сон и болезненность приложение достоверно определить не может — поэтому не просит их ежедневно вводить.</div></div>';
 }
 

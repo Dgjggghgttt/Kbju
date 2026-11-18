@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v29</title>
+<title>КБЖУ — дневник v30</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v29">
-<meta name="application-version" content="29">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v30">
+<meta name="application-version" content="30">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 29">
+  <div class="app-build-tag" aria-label="Версия приложения 30">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 29</span>
+    <span class="app-build-version">ВЕРСИЯ 30</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -316,7 +316,7 @@ var goals = {
   workoutAuto: true // авто-упражнения с прогрессией по прошлым тренировкам
 };
 var dayTemplate = null; // {entries: simplified[]}
-var mealTemplates = []; // сохранённые шаблоны отдельных приёмов пищи
+var mealTemplates = []; // legacy storage; UI удалён
 var weightLog = [];
 var measureLog = []; // {id, date, neck, waist, chest, bicepL, bicepR}
 var creatineLog = {}; // date -> true
@@ -340,17 +340,28 @@ function isTrainingDay(date){
   if(date >= todayStr()) return true;
   return list.some(function(w){ return w.done || (w.sets && String(w.sets).trim()); });
 }
+function bodyFatPercent(){
+  var v=Number(goals.bodyFatPct);
+  return isFinite(v)&&v>=3&&v<=60?v:18;
+}
 function macrosFromDeficitPlan(planKcal, mode){
-  var kg=bodyKgNow()||77, protein=Math.round(kg*2), fat=mode==='bulk'?50:30;
+  var kg=bodyKgNow()||77, bf=bodyFatPercent(), lean=kg*(1-bf/100);
+  var protein=Math.round(lean*2);
+  var fat=mode==='supercut'?30:((mode==='maintain'||mode==='bulk')?50:45);
   var kcal=Math.max(0,Math.round(planKcal));
   var carbs=Math.max(0,Math.floor((kcal-protein*4-fat*9)/4));
-  return {kcal:protein*4+fat*9+carbs*4,protein:protein,fat:fat,carbs:carbs};
+  return {kcal:protein*4+fat*9+carbs*4,protein:protein,fat:fat,carbs:carbs,lean:lean};
 }
 function autoGoalPlan(mode){
   var e=estimateMaintenanceKcal(), maintenance=(e&&e.kcal)||goals.maintenanceKcal||2000, kg=bodyKgNow()||77;
-  if(mode==='bulk') return {maintenance:maintenance,kcal:Math.round(maintenance+150),rate:'профицит +150 ккал'};
-  var deficit=Math.round(kg*0.01*7700/7);
-  return {maintenance:maintenance,kcal:Math.round(maintenance-deficit),rate:'цель −1% массы/нед (≈4% в месяц)'};
+  var deficit=0, rate='';
+  if(mode==='cut'){deficit=kg*0.02*7700/30.4375;rate='дефицит для снижения ≈2% массы в месяц';}
+  else if(mode==='supercut'){deficit=kg*0.04*7700/30.4375;rate='дефицит для снижения ≈4% массы в месяц';}
+  else if(mode==='bulk'){rate='профицит +150 ккал';}
+  else if(mode==='recomp'){deficit=kg*0.01*7700/30.4375;rate='небольшой дефицит ≈1% массы в месяц';}
+  else {mode='maintain';rate='энергетическое поддержание';}
+  var kcal=mode==='bulk'?Math.round(maintenance+150):Math.round(maintenance-deficit);
+  return {maintenance:maintenance,kcal:kcal,rate:rate};
 }
 
 function deficitPlanKcal(){
@@ -501,32 +512,6 @@ function renderTrainingDiagnostics(){
   return '<div class="section-title">Автопроверка тренировок</div><div class="card auto-check-card"><div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Период: '+period+' · без сегодняшнего дня</div>'+items.map(function(x){return '<div class="auto-check-item '+(x.level==='warn'?'auto-check-warn':(x.level==='ok'?'auto-check-ok-row':'auto-check-info'))+'"><b>'+x.title+'</b><div>'+x.text+'</div></div>';}).join('')+'</div>';
 }
 
-function buildTemplateCard(){
-  var entries=getDiary(currentDate), html='';
-  if(mealTemplates.length){
-    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">'+mealTemplates.map(function(t,i){return '<button type="button" class="btn ghost" data-load-meal-template="'+i+'" style="padding:7px 10px;font-size:11px;flex:0 1 auto;">↗ '+escapeHTML(t.name||'Приём пищи')+'</button>';}).join('')+'</div>';
-  }
-  var groups={};
-  entries.forEach(function(e){var m=e.meal||'snack';(groups[m]||(groups[m]=[])).push(e);});
-  var saveBtns=Object.keys(groups).filter(function(m){return groups[m].length;}).map(function(m){return '<button type="button" class="btn ghost" data-save-meal-template="'+m+'" style="padding:6px 9px;font-size:11px;">Сохранить '+escapeHTML(MEAL_LABELS[m]||m)+'</button>';}).join('');
-  if(!mealTemplates.length && !saveBtns) return '';
-  return '<div class="card" style="margin-bottom:10px;padding:10px 12px;"><div style="font-size:12px;font-weight:700;">Шаблоны приёмов пищи</div>'+(mealTemplates.length?'<div style="font-size:11px;color:var(--muted);margin-top:3px;">Добавить сохранённый набор продуктов одним нажатием</div>'+html:'<div style="font-size:11px;color:var(--muted);margin-top:3px;">Сохрани привычный завтрак, обед или перекус из записей за день</div>')+(saveBtns?'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'+saveBtns+'</div>':'')+'</div>';
-}
-function saveMealTemplate(meal){
-  var entries=getDiary(currentDate).filter(function(e){return (e.meal||'snack')===meal;});
-  if(!entries.length){showToast('В этом приёме пока нет записей');return;}
-  var name=(MEAL_LABELS[meal]||meal)+' · '+entries.length+' поз.';
-  var copy=entries.map(function(e){return JSON.parse(JSON.stringify(e));});
-  mealTemplates=mealTemplates.filter(function(t){return t.meal!==meal;});
-  mealTemplates.push({name:name,meal:meal,entries:copy.map(function(e){var x=Object.assign({},e);delete x.id;return x;})});
-  if(mealTemplates.length>12) mealTemplates=mealTemplates.slice(-12);
-  sSet('mealTemplates',mealTemplates);showToast('Шаблон сохранён');render();
-}
-function loadMealTemplate(index){
-  var t=mealTemplates[index];if(!t||!Array.isArray(t.entries))return;
-  var dest=getDiary(currentDate);t.entries.forEach(function(e){var x=JSON.parse(JSON.stringify(e));x.id=uid();x.time=nowTimeStr();dest.push(x);});
-  saveDiary(currentDate,dest);showToast('Добавлено записей: '+t.entries.length);render();
-}
 
 function saveDayAsTemplate(){
   var entries = getDiary(currentDate);
@@ -1713,13 +1698,9 @@ function renderDiaryTab(content, fab){
       <div style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;">Норма = ${base.kcal} ккал (поддержание). Переел — завтра обычный план, без отработки голодом.</div>
     </div>`;
   }
-  var tplCard = buildTemplateCard();
-  adjNote = tplCard + adjNote;
-  var dashGoals=activeGoals(currentDate), dashRemain=remainingMacros(currentDate), dashWorkout=getWorkouts(currentDate).some(function(w){return w.done;});
   var undoState=sGet('lastDiaryUndo',null);
   var undoHtml=undoState&&undoState.entry&&undoState.date?'<div class="undo-action"><span>Последнее удаление можно отменить</span><button type="button" id="undoLastAction">Отменить</button></div>':'';
-  var dashHtml='<div class="card" style="padding:11px 13px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b style="font-size:13px;">Сводка дня</b><button type="button" class="btn ghost" id="compactToggle" style="flex:0 0 auto;padding:5px 9px;font-size:10px;">'+(sGet('compact-interface',false)?'Обычный вид':'Компактный вид')+'</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px;"><div style="font-size:12px;color:var(--muted);">Остаток калорий <b style="display:block;color:var(--ink);font:600 15px var(--mono);">'+round(dashRemain.kcal)+' ккал</b></div><div style="font-size:12px;color:var(--muted);">Белок до цели <b style="display:block;color:var(--ink);font:600 15px var(--mono);">'+round(dashRemain.protein)+' г</b></div><div style="font-size:12px;color:var(--muted);">Записей еды <b style="display:block;color:var(--ink);">'+entries.length+'</b></div><div style="font-size:12px;color:var(--muted);">Тренировка <b style="display:block;color:'+(dashWorkout?'var(--green)':'var(--ink)')+';">'+(dashWorkout?'Выполнена':'Не отмечена')+'</b></div></div><button type="button" class="btn primary" id="dashAddFood" style="width:100%;margin-top:9px;padding:9px;font-size:12px;">+ Быстро добавить еду</button></div>';
-  adjNote = undoHtml + dashHtml + adjNote;
+  adjNote = undoHtml + adjNote;
 
   function entryRow(e){
     var m = entryMacros(e);
@@ -1923,10 +1904,6 @@ function renderDiaryTab(content, fab){
     sRemove('lastDiaryUndo');
     currentDate=u.date;showToast('Удаление отменено');render();
   };
-  var dashAdd=document.getElementById('dashAddFood');if(dashAdd)dashAdd.onclick=function(){openAddEntry(null);};
-  var compactToggle=document.getElementById('compactToggle');if(compactToggle)compactToggle.onclick=function(){sSet('compact-interface',!sGet('compact-interface',false));render();};
-  content.querySelectorAll('[data-save-meal-template]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation();saveMealTemplate(b.getAttribute('data-save-meal-template'));};});
-  content.querySelectorAll('[data-load-meal-template]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation();loadMealTemplate(+b.getAttribute('data-load-meal-template'));};});
   fab.innerHTML = `<button id="addEntryBtn">+ Добавить приём пищи</button>`;
   document.getElementById('addEntryBtn').onclick = function(){ openAddEntry(null); };
 
@@ -2222,8 +2199,8 @@ function replaceWorkoutExercise(id){
   var src=String(current.name||'').toLowerCase(),sameGear=/(штанг)/.test(src)?'штанга':(/гантел/.test(src)?'гантели':(/подтяг/.test(src)?'турник':'собственный вес'));
   choices.sort(function(a,b){function score(x){var n=x.toLowerCase(),sc=0;if(sameGear==='штанга'&&/штанг/.test(n))sc+=3;if(sameGear==='гантели'&&/гантел/.test(n))sc+=3;if(sameGear==='турник'&&/подтяг/.test(n))sc+=3;if(sameGear==='собственный вес'&&/отжим|негатив/.test(n))sc+=2;return sc;}return score(b)-score(a);});
   var root=document.getElementById('modalRoot');
-  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>Аналогичная замена</h2><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">'+escapeHTML(muscle)+' · сначала варианты с похожим оборудованием ('+sameGear+')</div>'+choices.map(function(x,i){return '<button class="btn ghost" data-rep="'+i+'" style="width:100%;text-align:left;margin:4px 0;padding:12px;">'+escapeHTML(x)+(i===0?' · ближе всего по оборудованию':'')+'</button>';}).join('')+'<button class="btn ghost" id="cancelReplace" style="width:100%;margin-top:8px;">Отмена</button></div></div>';
-  root.querySelectorAll('[data-rep]').forEach(function(b){b.onclick=function(){var name=choices[+b.getAttribute('data-rep')];list[idx]=Object.assign({},current,{name:name,weight:null,sets:'',done:false,planned:true,targetWeight:null,advice:'Новое упражнение: начни с лёгкого веса и подбери рабочую нагрузку.'});saveWorkouts(currentDate,list);closeModal();render();};});
+  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>Аналогичная замена</h2><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">'+escapeHTML(muscle)+' · сначала варианты с похожим оборудованием ('+sameGear+')</div>'+choices.map(function(x,i){return '<button type="button" class="btn ghost" data-rep-index="'+i+'" style="width:100%;text-align:left;margin:4px 0;padding:12px;touch-action:manipulation;">'+escapeHTML(x)+(i===0?' · ближе всего по оборудованию':'')+'</button>';}).join('')+'<button type="button" class="btn ghost" id="cancelReplace" style="width:100%;margin-top:8px;">Отмена</button></div></div>';
+  root.onclick=function(ev){var b=ev.target.closest?ev.target.closest('[data-rep-index]'):null;if(!b)return;ev.preventDefault();ev.stopPropagation();var pick=Number(b.getAttribute('data-rep-index'));if(!Number.isInteger(pick)||!choices[pick])return;var name=choices[pick];var latest=getWorkouts(currentDate)||[];var liveIdx=latest.findIndex(function(w){return String(w.id)===String(id);});if(liveIdx<0){showToast('Упражнение уже изменилось');closeModal();return;}latest[liveIdx]=Object.assign({},latest[liveIdx],{name:name,weight:null,sets:'',done:false,planned:true,targetWeight:null,advice:'Новое упражнение: начни с лёгкого веса и подбери рабочую нагрузку.'});saveWorkouts(currentDate,latest);root.onclick=null;closeModal();render();showToast('Упражнение заменено');};
   document.getElementById('cancelReplace').onclick=closeModal;
   document.getElementById('ov').onclick=function(e){if(e.target.id==='ov')closeModal();};
 }
@@ -3810,8 +3787,7 @@ function collectAllData(){
   try{if(_storageOk){for(var ri=0;ri<localStorage.length;ri++){var rk=localStorage.key(ri);if(rk&&rk.indexOf('recovery:')===0){var rd=rk.slice(9);try{recovery[rd]=JSON.parse(localStorage.getItem(rk));}catch(e){}}}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('recovery:')===0&&!recovery[k.slice(9)])recovery[k.slice(9)]=_memStore[k];});
   return {
-    version: 9,
-    appVersion: 29,
+    version: 9, appVersion: 30,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,
@@ -3829,7 +3805,7 @@ function collectAllData(){
     recovery: recovery,
     muscleVolumeTargets: sGet('muscleVolumeTargets', {min:8,max:16}),
     mealPlan: sGet('mealPlan', null),
-    mealTemplates: mealTemplates,
+    mealTemplates: [],
     shopChecked: sGet('shopChecked', {}),
     inventory: sGet('inventory', {})
   };
@@ -3845,7 +3821,7 @@ async function exportData(){
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kbju-backup-v29-' + todayStr() + '.json';
+    a.download = 'kbju-backup-v30-' + todayStr() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3874,7 +3850,7 @@ async function exportCSV(){
   try{
     await flushIndexedDB();
     var data=collectAllData();
-    var rows=[['Приложение','КБЖУ — дневник','Версия','29'],['Раздел','Дата','Название / параметр','Количество / вес','Ккал','Белки, г','Жиры, г','Углеводы, г','Клетчатка, г','Подходы / значение','RIR по подходам','Статус']];
+    var rows=[['Приложение','КБЖУ — дневник','Версия','30'],['Раздел','Дата','Название / параметр','Количество / вес','Ккал','Белки, г','Жиры, г','Углеводы, г','Клетчатка, г','Подходы / значение','RIR по подходам','Статус']];
     function v(x,k){return x&&x[k]!=null?x[k]:'';}
     Object.keys(data.diary||{}).sort().forEach(function(d){(data.diary[d]||[]).forEach(function(x){var m=entryMacros(x);rows.push(['Питание',d,m.name,m.grams==null?'':m.grams,round(m.kcal),round(m.protein),round(m.fat),round(m.carbs),round(m.fiber),'','','']);});});
     Object.keys(data.workouts||{}).sort().forEach(function(d){(data.workouts[d]||[]).forEach(function(x){rows.push(['Тренировка',d,v(x,'name'),v(x,'weight'),'','','','','',v(x,'sets'),Array.isArray(x.rirBySet)?x.rirBySet.join('/'):(x.rir==null?'':x.rir),(x.done?'выполнено':(x.planned?'план':''))+(x.note?' · '+x.note:'')]);});});
@@ -3889,7 +3865,7 @@ async function exportCSV(){
     rows.push(['Цель объёма мышц','','Подходы на мышцу за неделю',(data.muscleVolumeTargets||{}).min+'–'+(data.muscleVolumeTargets||{}).max,'','','','','','','','']);
     Object.keys(data.goals||{}).sort().forEach(function(k){rows.push(['Цели','',k,data.goals[k],'','','','','','','','']);});
     var csv='\ufeff'+rows.map(function(r){return r.map(csvCell).join(';');}).join('\r\n');
-    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v29-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v30-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
     showToast('CSV-файл подготовлен');
   }catch(e){showToast('Ошибка CSV-экспорта');}
 }
@@ -3945,7 +3921,7 @@ function importData(ev){
       if(_storageOk){ for(var si=0;si<localStorage.length;si++){ var sk=localStorage.key(si); storageBackup[sk]=localStorage.getItem(sk); } }
       var oldIdbCache=Object.assign({},_idbCache);
       var oldMemStore=Object.assign({},_memStore);
-      var oldState = {products:products,goals:goals,weightLog:weightLog,measureLog:measureLog,creatineLog:creatineLog,favorites:favorites,trainingDays:trainingDays,exercises:exercises,dayTemplate:dayTemplate,diaryCache:diaryCache,workoutCache:workoutCache,bikeCache:bikeCache,hasMealPlan:(typeof mealPlan!=='undefined'),mealPlan:(typeof mealPlan!=='undefined'?mealPlan:null),mealTemplates:mealTemplates,hasShopChecked:(typeof shopChecked!=='undefined'),shopChecked:(typeof shopChecked!=='undefined'?shopChecked:null),hasInventory:(typeof inventory!=='undefined'),inventory:(typeof inventory!=='undefined'?inventory:null)};
+      var oldState = {products:products,goals:goals,weightLog:weightLog,measureLog:measureLog,creatineLog:creatineLog,favorites:favorites,trainingDays:trainingDays,exercises:exercises,dayTemplate:dayTemplate,diaryCache:diaryCache,workoutCache:workoutCache,bikeCache:bikeCache,hasMealPlan:(typeof mealPlan!=='undefined'),mealPlan:(typeof mealPlan!=='undefined'?mealPlan:null),mealTemplates:[],hasShopChecked:(typeof shopChecked!=='undefined'),shopChecked:(typeof shopChecked!=='undefined'?shopChecked:null),hasInventory:(typeof inventory!=='undefined'),inventory:(typeof inventory!=='undefined'?inventory:null)};
       try{
         // Удаляем старые датированные записи из всех хранилищ, включая IDB-only режим.
         var dynamicKeyMap={};
@@ -4698,116 +4674,59 @@ function openMeasureForm(existing){
 }
 
 function openGoalsForm(){
-  const root = document.getElementById('modalRoot');
-  var autoMode=goals.autoMode||'cut';
-  var plan0=autoGoalPlan(autoMode), autoSupport=plan0.maintenance;
-  var autoSupportSource='Ориентир по динамике веса и питания; уточняется по фактическому тренду.';
-  var autoMacros=macrosFromDeficitPlan(plan0.kcal,autoMode);
-
-  root.innerHTML = `
-    <div class="overlay" id="ov">
-      <div class="sheet">
-        <h2>Дневные цели</h2>
-        <label style="display:flex;align-items:flex-start;gap:10px;margin:4px 0 12px;font-size:13px;line-height:1.4;">
-          <input type="checkbox" id="gAutoW" ${goals.autoFromWeight?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>Автоматический расчёт от веса</b><br><span style="color:var(--muted);font-size:12px;">Снижение около 1% массы тела в неделю (ориентир 4% в месяц).</span></span>
-        </label>
-        <div class="field" id="autoModeField"><label>Цель</label><select id="gAutoMode" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;"><option value="cut" ${autoMode==='cut'?'selected':''}>Сушка</option><option value="bulk" ${autoMode==='bulk'?'selected':''}>Массонабор</option></select></div>
-        <div id="autoGoalsView" class="card" style="margin-bottom:12px;padding:12px 14px;">
-          <div style="font-size:13px;color:var(--muted);">Цель на день</div>
-          <div style="font-size:22px;font-weight:700;margin:2px 0 10px;">${autoMacros.kcal} ккал</div>
-          <div style="font-size:13px;">Б ${autoMacros.protein} г · Ж ${autoMacros.fat} г · У ${autoMacros.carbs} г</div>
-          <div style="font-size:13px;color:var(--muted);margin-top:10px;">Поддержание: <b style="color:var(--ink);">${Math.round(autoSupport)} ккал</b></div><div style="font-size:11px;color:var(--muted);margin-top:3px;">${autoSupportSource}</div>
-        </div>
-        <div id="manualGoalsView">
-          <div class="field"><label>Калории</label><input id="gKcal" type="number" value="${goals.kcal}"></div>
-          <div class="row4">
-            <div class="field"><label>Белки</label><input id="gProtein" type="number" value="${goals.protein}"></div>
-            <div class="field"><label>Жиры</label><input id="gFat" type="number" value="${goals.fat}"></div>
-            <div class="field"><label>Углеводы</label><input id="gCarbs" type="number" value="${goals.carbs}"></div>
-          </div>
-          <div class="field"><label>Калории поддержания</label><input id="gMaint2" type="number" inputmode="decimal" value="${goals.maintenanceKcal||''}" placeholder="например, 2200"></div>
-        </div>
-        <input type="checkbox" id="g8020" style="display:none;"><input type="hidden" id="gMaintDay" value="0">\n        <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
-          <input type="checkbox" id="gWoAuto" ${goals.workoutAuto!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>Авто-упражнения</b><br><span style="color:var(--muted);font-size:12px;">Подставлять план тренировки с учётом прошлых результатов.</span></span>
-        </label>
-        <div class="card" style="padding:10px 12px;margin:10px 0 12px;font-size:12px;line-height:1.45;color:var(--muted);">
-          <b style="color:var(--ink);">Как приложение считает питание</b><br>
-          Белок — отдельная цель на каждый день. Калории и жиры оцениваются по средней за неделю. Вчерашнее превышение не уменьшает сегодняшнюю норму.
-        </div>
-        <div class="sheet-actions">
-          <button class="btn ghost" id="cancelBtn">Отмена</button>
-          <button class="btn primary" id="saveBtn">Сохранить</button>
-        </div>
+  const root=document.getElementById('modalRoot');
+  var mode=goals.autoMode||'cut';
+  if(mode==='super_cut')mode='supercut';
+  var plan=autoGoalPlan(mode), preview=macrosFromDeficitPlan(plan.kcal,mode);
+  root.innerHTML=`
+    <div class="overlay" id="ov"><div class="sheet">
+      <h2>Режим питания</h2>
+      <div class="field"><label>Выбери цель</label><select id="gAutoMode" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;">
+        <option value="cut" ${mode==='cut'?'selected':''}>Сушка · −2% массы в месяц</option>
+        <option value="supercut" ${mode==='supercut'?'selected':''}>Супер-сушка · −4% массы в месяц</option>
+        <option value="maintain" ${mode==='maintain'?'selected':''}>Поддержание</option>
+        <option value="bulk" ${mode==='bulk'?'selected':''}>Массонабор</option>
+        <option value="recomp" ${mode==='recomp'?'selected':''}>Рекомпозиция тела</option>
+      </select></div>
+      <div class="field"><label>Оценка жира в организме, %</label><input id="gBodyFat" type="number" min="3" max="60" step="0.5" inputmode="decimal" value="${bodyFatPercent()}"></div>
+      <div id="autoGoalsView" class="card" style="margin-bottom:12px;padding:12px 14px;"></div>
+      <div class="field"><label>Калории поддержания</label><input id="gMaint2" type="number" inputmode="decimal" value="${goals.maintenanceKcal||''}" placeholder="например, 2200"></div>
+      <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
+        <input type="checkbox" id="gWoAuto" ${goals.workoutAuto!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
+        <span><b>Авто-упражнения</b><br><span style="color:var(--muted);font-size:12px;">Подставлять план тренировки с учётом прошлых результатов.</span></span>
+      </label>
+      <div class="card" style="padding:10px 12px;margin:10px 0 12px;font-size:12px;line-height:1.45;color:var(--muted);">
+        <b style="color:var(--ink);">Правила расчёта</b><br>
+        Белок — 2 г на кг безжировой массы. Жиры: сушка — 45 г в среднем; супер-сушка — не более 30 г в среднем; поддержание и массонабор — 50 г в среднем. Углеводы заполняют оставшуюся калорийность. Среднее жиров контролируется по неделе.
       </div>
-    </div>`;
-
-  function refreshGoalsMode(){
-    var auto=document.getElementById('gAutoW').checked, mode=document.getElementById('gAutoMode').value;
-    var plan=autoGoalPlan(mode), preview=macrosFromDeficitPlan(plan.kcal,mode);
-    document.getElementById('autoGoalsView').style.display=auto?'block':'none';
-    document.getElementById('manualGoalsView').style.display=auto?'none':'block';
-    document.getElementById('autoModeField').style.display=auto?'block':'none';
-    document.getElementById('autoGoalsView').innerHTML='<div style="font-size:13px;color:var(--muted);">'+(mode==='bulk'?'Массонабор':'Сушка')+'</div><div style="font-size:22px;font-weight:700;margin:2px 0 10px;">'+preview.kcal+' ккал</div><div style="font-size:13px;">Б '+preview.protein+' г · Ж '+preview.fat+' г · У '+preview.carbs+' г</div><div style="font-size:13px;color:var(--muted);margin-top:10px;">Поддержание: <b style="color:var(--ink);">'+Math.round(plan.maintenance)+' ккал</b></div><div style="font-size:11px;color:var(--muted);margin-top:3px;">'+plan.rate+' · белок 2 г/кг · жир '+preview.fat+' г</div>';
+      <div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>
+    </div></div>`;
+  function refresh(){
+    var m=document.getElementById('gAutoMode').value, bf=Number(document.getElementById('gBodyFat').value);
+    if(isFinite(bf)&&bf>=3&&bf<=60)goals.bodyFatPct=bf;
+    var pl=autoGoalPlan(m), mm=macrosFromDeficitPlan(pl.kcal,m);
+    var labels={cut:'Сушка',supercut:'Супер-сушка',maintain:'Поддержание',bulk:'Массонабор',recomp:'Рекомпозиция тела'};
+    var fatText=m==='supercut'?'не более 30 г в среднем':('около '+mm.fat+' г в среднем');
+    document.getElementById('autoGoalsView').innerHTML='<div style="font-size:13px;color:var(--muted);">'+labels[m]+'</div><div style="font-size:22px;font-weight:700;margin:2px 0 10px;">'+mm.kcal+' ккал</div><div style="font-size:13px;">Б '+mm.protein+' г · Ж '+mm.fat+' г · У '+mm.carbs+' г</div><div style="font-size:13px;color:var(--muted);margin-top:8px;">Поддержание: <b style="color:var(--ink);">'+Math.round(pl.maintenance)+' ккал</b></div><div style="font-size:11px;color:var(--muted);margin-top:3px;">'+pl.rate+' · безжировая масса ≈ '+mm.lean.toFixed(1)+' кг · жиры '+fatText+'</div>';
   }
-  document.getElementById('gAutoW').onchange = refreshGoalsMode;
-  document.getElementById('g8020').onchange = refreshGoalsMode;
-  document.getElementById('gAutoMode').onchange=refreshGoalsMode;
-  refreshGoalsMode();
-
-  document.getElementById('cancelBtn').onclick = closeModal;
-  document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
-  document.getElementById('saveBtn').onclick = function(){
-    goals.autoFromWeight = !!document.getElementById('gAutoW').checked;
-    goals.autoMode=document.getElementById('gAutoMode').value;
-    goals.rule8020 = false;
-    if(!goals.autoFromWeight){
-      goals.kcal = parseFloat(document.getElementById('gKcal').value)||goals.kcal;
-      goals.protein = parseFloat(document.getElementById('gProtein').value)||goals.protein;
-      goals.fat = parseFloat(document.getElementById('gFat').value)||goals.fat;
-      goals.carbs = parseFloat(document.getElementById('gCarbs').value)||goals.carbs;
-      var mk2 = parseFloat(document.getElementById('gMaint2').value);
-      if(mk2 > 0) goals.maintenanceKcal = mk2;
-    } else {
-      var planObj=autoGoalPlan(goals.autoMode||'cut');
-      goals.maintenanceKcal=planObj.maintenance;
-      var mm=macrosFromDeficitPlan(planObj.kcal,goals.autoMode||'cut');
-      goals.kcal=mm.kcal;goals.protein=mm.protein;goals.fat=mm.fat;goals.carbs=mm.carbs;
-    }
-    goals.workoutAuto = !!document.getElementById('gWoAuto').checked;
-    goals.maintenanceWeekday=0;
-    goals.smartAdjust = false;
-    goals.trainKcal = goals.kcal;
-    goals.trainProtein = goals.protein;
-    goals.trainFat = goals.fat;
-    goals.trainCarbs = goals.carbs;
-    sSet('goals', goals);
-    closeModal();
-    render();
+  document.getElementById('gAutoMode').onchange=refresh;
+  document.getElementById('gBodyFat').oninput=refresh;
+  refresh();
+  document.getElementById('cancelBtn').onclick=closeModal;
+  document.getElementById('ov').onclick=function(e){if(e.target.id==='ov')closeModal();};
+  document.getElementById('saveBtn').onclick=function(){
+    var m=document.getElementById('gAutoMode').value, bf=Number(document.getElementById('gBodyFat').value);
+    if(!isFinite(bf)||bf<3||bf>60){showToast('Укажи процент жира от 3 до 60');return;}
+    goals.autoFromWeight=true;goals.autoMode=m;goals.bodyFatPct=bf;goals.rule8020=false;
+    var mk=parseFloat(document.getElementById('gMaint2').value);if(mk>0)goals.maintenanceKcal=mk;
+    var p=autoGoalPlan(m), x=macrosFromDeficitPlan(p.kcal,m);
+    goals.maintenanceKcal=p.maintenance;goals.kcal=x.kcal;goals.protein=x.protein;goals.fat=x.fat;goals.carbs=x.carbs;
+    goals.workoutAuto=!!document.getElementById('gWoAuto').checked;
+    goals.trainKcal=goals.kcal;goals.trainProtein=goals.protein;goals.trainFat=goals.fat;goals.trainCarbs=goals.carbs;
+    sSet('goals',goals);closeModal();render();
   };
 }
 
-/* ---------------- weekly plan ---------------- */
-var STAPLES = [
-  // сырой / сухой вес — удобно для списка покупок
-  {name:'Куриная грудка сырая', kcal:113, protein:23.6, fat:1.9, carbs:0.4, fiber:0, foodGroup:'protein'},
-  {name:'Филе индейки сырое', kcal:114, protein:23.6, fat:1.5, carbs:0, fiber:0, foodGroup:'protein'},
-  {name:'Лосось сырой', kcal:208, protein:20.4, fat:13.4, carbs:0, fiber:0, foodGroup:'protein'},
-  {name:'Яйцо куриное', kcal:157, protein:12.7, fat:10.9, carbs:0.7, fiber:0, foodGroup:'protein', portionName:'штука', portionGrams:55},
-  {name:'Творог 5%', kcal:121, protein:17, fat:5, carbs:3, fiber:0, foodGroup:'dairy'},
-  {name:'Рис сухой', kcal:344, protein:6.7, fat:0.7, carbs:78.9, fiber:1.3, foodGroup:'grain'},
-  {name:'Макароны сухие', kcal:348, protein:12, fat:1.5, carbs:70, fiber:3.2, foodGroup:'grain'},
-  {name:'Гречка сухая', kcal:313, protein:12.6, fat:3.3, carbs:62.1, fiber:11.3, foodGroup:'grain'},
-  {name:'Овсянка сухая', kcal:352, protein:12.3, fat:6.2, carbs:61.8, fiber:9, foodGroup:'grain'},
-  {name:'Фасоль красная консервированная', kcal:90, protein:6.5, fat:0.5, carbs:14, fiber:5.5, foodGroup:'grain'},
-  {name:'Хлеб цельнозерновой', kcal:250, protein:9, fat:3, carbs:43, fiber:7, foodGroup:'grain', portionName:'ломтик', portionGrams:30},
-  {name:'Огурец', kcal:15, protein:0.8, fat:0.1, carbs:2.5, fiber:0.7, foodGroup:'veg'},
-  {name:'Помидор', kcal:20, protein:0.9, fat:0.2, carbs:3.9, fiber:1.2, foodGroup:'veg'},
-  {name:'Яблоко', kcal:52, protein:0.3, fat:0.2, carbs:14, fiber:2.4, foodGroup:'fruit', portionName:'штука', portionGrams:180},
-  {name:'Банан', kcal:96, protein:1.5, fat:0.5, carbs:21, fiber:2.6, foodGroup:'fruit', portionName:'штука', portionGrams:120},
-  {name:'Масло оливковое', kcal:898, protein:0, fat:99.8, carbs:0, fiber:0, foodGroup:'other'}
-];
 function esc(s){
   return String(s==null ? '' : s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];

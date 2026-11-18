@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v12</title>
+<title>КБЖУ — дневник v13</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v12">
-<meta name="application-version" content="12">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v13">
+<meta name="application-version" content="13">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -48,7 +48,21 @@
     padding:18px 20px 14px;
     border-bottom:1px dashed var(--line);
   }
-  .app-version{font-size:10px;letter-spacing:.5px;color:var(--muted);text-align:center;margin:-7px 0 8px;font-family:var(--mono);}
+  .app-build-tag{position:sticky;top:0;z-index:35;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;background:#243d2b;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12);font-family:var(--mono);font-size:11px;letter-spacing:.7px;}
+  .auto-check-card{padding:11px 13px;}
+  .auto-check-heading{font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;}
+  .auto-check-count{font:700 11px var(--mono);background:var(--red-dim);color:var(--red);border-radius:999px;padding:3px 7px;}
+  .auto-check-ok{color:var(--green);font-weight:800;}
+  .auto-check-note{font-size:12px;line-height:1.45;color:var(--muted);}
+  .auto-check-item{font-size:12px;line-height:1.45;padding:8px 0;border-top:1px solid var(--line);}
+  .auto-check-item b{display:block;margin-bottom:2px;font-size:12.5px;}
+  .auto-check-item>div{color:var(--muted);}
+  .auto-check-warn b{color:var(--red);}
+  .auto-check-info b{color:var(--green);}
+  .auto-check-ok-row b{color:var(--green);}
+
+  .app-build-name{font-weight:700;}
+  .app-build-version{font-weight:800;background:#fff;color:#243d2b;border-radius:999px;padding:4px 9px;font-size:11px;letter-spacing:.4px;}
   .receipt-date{
     display:flex; align-items:center; justify-content:space-between;
     margin-bottom:10px;
@@ -189,6 +203,10 @@
 </head>
 <body>
 <div id="app">
+  <div class="app-build-tag" aria-label="Версия приложения 13">
+    <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
+    <span class="app-build-version">ВЕРСИЯ 13</span>
+  </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
   <div class="fab" id="fab"></div>
@@ -565,6 +583,114 @@ function weeklyNutritionStatusHtml(date){
     '</div>';
 }
 
+function buildNutritionDiagnostics(date){
+  date = date || todayStr();
+  var items = [], entries = getDiary(date), totals = computeTotals(entries);
+  var avg = weeklyMacroAverages(date, 7);
+  var goalKcal = Math.round(averageBaseGoalForWeek(date, 'kcal'));
+  var diversity = dietDiversity(7);
+  function add(level, title, text){ items.push({level:level,title:title,text:text}); }
+
+  // Check product records actually used in the diary, not the entire catalogue.
+  var checked = {};
+  entries.forEach(function(e){
+    if(!e.productId || checked[e.productId]) return;
+    checked[e.productId] = true;
+    var product = products.find(function(p){return p.id===e.productId;});
+    if(!product) return;
+    var warnings = foodDataWarnings(product);
+    if(warnings.length) add('warn','Проверь данные продукта «'+escapeHTML(product.name)+'»',warnings[0]+'. Исправь карточку продукта в разделе «Продукты».');
+  });
+
+  if(date === todayStr()){
+    var hour = parseInt(nowTimeStr().slice(0,2),10);
+    var mealProtein = {breakfast:0,lunch:0,dinner:0};
+    entries.forEach(function(e){ if(Object.prototype.hasOwnProperty.call(mealProtein,e.meal)) mealProtein[e.meal] += entryMacros(e).protein||0; });
+    var due = [{key:'breakfast',label:'Завтрак',after:11},{key:'lunch',label:'Обед',after:16},{key:'dinner',label:'Ужин',after:23}];
+    due.forEach(function(m){
+      if(hour >= m.after && mealProtein[m.key] > 0 && mealProtein[m.key] < 30){
+        add('info',m.label+': '+round(mealProtein[m.key])+' г белка','Ориентир 30 г за основной приём не достигнут. В следующий раз добавь порцию творога, рыбы, мяса, яиц или другого белкового продукта.');
+      }
+    });
+    var pGoal = proteinGoalFor(date), pLeft = pGoal - totals.protein;
+    if(hour >= 20 && pLeft > 20){
+      add('warn','Белок за день не добран','Осталось около '+round(pLeft)+' г до дневной цели. Если планируешь ещё есть — выбери белковый продукт; завтра ничего переносить или компенсировать не нужно.');
+    }
+    if(hour >= 19 && totals.fiber < 15 && entries.length){
+      add('info','Мало клетчатки за сегодня','Сейчас около '+round(totals.fiber)+' г. Если ещё будет приём пищи, добавь овощи, бобовые, овсянку или фрукт.');
+    }
+  }
+
+  if(avg && avg.days >= 5){
+    if(avg.kcal > goalKcal + 150){
+      add('warn','Средняя калорийность выше плана','За '+avg.days+' полных дней: '+round(avg.kcal)+' ккал против ориентира '+goalKcal+'. Не урезай завтра рацион для компенсации — вернись к обычному плану и оцени следующую полную неделю.');
+    } else if(avg.kcal < goalKcal - 200){
+      add('warn','Средняя калорийность заметно ниже плана','За '+avg.days+' полных дней: '+round(avg.kcal)+' ккал против ориентира '+goalKcal+'. Не усиливай дефицит; проверь, не пропущены ли приёмы пищи и достаточно ли энергии для тренировок.');
+    }
+    if(avg.fat < 40){
+      add('warn','Средний жир ниже 40 г','Сейчас около '+round(avg.fat)+' г в день. Добавь в рацион немного рыбы, яиц, орехов или растительного масла; оценивай среднее, не один день.');
+    }
+  }
+  if(diversity.daysWithFood >= 3 && diversity.avgFiber < 25){
+    add('info','Клетчатка ниже ориентира','Среднее около '+round(diversity.avgFiber)+' г за полные дни. Постепенно добавляй овощи, бобовые, крупы и фрукты; ориентир — 25–30 г в день.');
+  }
+  if(diversity.daysWithFood >= 3 && diversity.avgVeg + diversity.avgFruit < (goals.vegFruitTarget || 500) * 0.6){
+    add('info','Мало овощей и фруктов','Среднее около '+round(diversity.avgVeg+diversity.avgFruit)+' г в день. Добавь одну-две порции овощей или фруктов к обычным приёмам пищи.');
+  }
+  var pace = weeklyWeightPace(0);
+  if(pace && pace.delta < -pace.safeMax){
+    add('warn','Вес снижается слишком быстро','Темп около '+round(Math.abs(pace.delta))+' кг/нед. Не сокращай калории дальше; оцени средний вес ещё за неделю и при сохранении темпа увеличь рацион.');
+  }
+  // Keep the most actionable items at the top and avoid overwhelming the user.
+  var rank = {warn:0,info:1};
+  items.sort(function(a,b){return rank[a.level]-rank[b.level];});
+  return items.slice(0,5);
+}
+
+function renderNutritionDiagnostics(date){
+  date = date || todayStr();
+  if(date !== todayStr()) return '';
+  var items = buildNutritionDiagnostics(date);
+  var avg = weeklyMacroAverages(date || todayStr(),7);
+  if(!items.length){
+    var note = avg && avg.days >= 5 ? 'По заполненным данным явных отклонений от основных ориентиров не найдено.' : 'Пока недостаточно полных дней для надёжной недельной оценки. Приложение продолжает проверять сегодняшние записи.';
+    return '<div class="card auto-check-card" style="margin-bottom:10px;"><div class="auto-check-heading">Автопроверка питания <span class="auto-check-ok">✓</span></div><div class="auto-check-note">'+note+'</div></div>';
+  }
+  return '<div class="card auto-check-card" style="margin-bottom:10px;"><div class="auto-check-heading">Автопроверка питания <span class="auto-check-count">'+items.length+'</span></div>'+items.map(function(x){return '<div class="auto-check-item '+(x.level==='warn'?'auto-check-warn':'auto-check-info')+'"><b>'+x.title+'</b><div>'+x.text+'</div></div>';}).join('')+'</div>';
+}
+
+function buildTrainingDiagnostics(){
+  var items=[], sessions=0,totalSets=0,rirLow=0,lastSession=null,missing=[];
+  for(var i=6;i>=0;i--){
+    var d=shiftDate(todayStr(),-i);
+    getWorkouts(d).forEach(function(w){
+      if(!w || !w.done) return;
+      sessions++; if(!lastSession || d>lastSession.date) lastSession={date:d,workout:w};
+      var reps=parseSetArray(w.sets);
+      totalSets+=reps.length;
+      if(!reps.length) missing.push(w.name||'упражнение');
+      var rv=Array.isArray(w.rirBySet)?w.rirBySet:(w.rir!=null?reps.map(function(){return +w.rir;}):[]);
+      rv.forEach(function(v){if(v!=null && isFinite(+v) && +v<=1)rirLow++;});
+    });
+  }
+  var biceps=round(weeklyMuscleLoad(7)['Бицепс']||0);
+  var plateaus=exercisePlateaus(56);
+  if(missing.length) items.push({level:'info',title:'Не все тренировки записаны полностью',text:'Нет подходов у: '+escapeHTML(missing.slice(0,3).join(', '))+'. Записывай повторы, иначе приложение не сможет оценить прогрессию.'});
+  if(rirLow>=2) items.push({level:'warn',title:'Несколько подходов почти до отказа','text':'За неделю отмечено '+rirLow+' подходов с RIR 0–1. На следующей тренировке не повышай вес или повторы в этих упражнениях; сначала закрепи технику и запас.'});
+  if(sessions>=5 || totalSets>=55){items.push({level:'warn',title:'Высокая недельная нагрузка','text':'За 7 дней: '+sessions+' тренировок и '+totalSets+' подходов. Не добавляй объём автоматически; при ухудшении результатов сократи рабочие подходы примерно на 20–30% на неделю.'});}
+  if(biceps>16){items.push({level:'warn',title:'Бицепс получил большой объём','text':'Оценка — '+biceps+' эффективных подходов за неделю. Не добавляй новые подходы на бицепс; оставь объём прежним или немного снизь его.'});}
+  if(plateaus.length>=2 && (sessions>=3 || totalSets>=25)){items.push({level:'info',title:'Возможное плато в нескольких упражнениях','text':'Приложение видит отсутствие роста расчётной силы в '+plateaus.length+' упражнениях. Не наращивай объём вслепую: проверь технику, сон и питание; при накопленной усталости сделай облегчённую неделю.'});}
+  if(!items.length && sessions){items.push({level:'ok',title:'Явных проблем по журналу не видно','text':'За 7 дней записано '+sessions+' тренировок и '+totalSets+' подходов. Продолжай постепенную прогрессию, не повышая нагрузку рывками.'});}
+  if(!sessions){items.push({level:'info',title:'Пока мало данных','text':'Запиши несколько выполненных тренировок — тогда приложение сможет оценивать нагрузку, RIR и динамику упражнений.'});}
+  var rank={warn:0,info:1,ok:2};items.sort(function(a,b){return rank[a.level]-rank[b.level];});
+  return items.slice(0,5);
+}
+
+function renderTrainingDiagnostics(){
+  var items=buildTrainingDiagnostics();
+  return '<div class="section-title">Автопроверка тренировок</div><div class="card auto-check-card">'+items.map(function(x){return '<div class="auto-check-item '+(x.level==='warn'?'auto-check-warn':(x.level==='ok'?'auto-check-ok-row':'auto-check-info'))+'"><b>'+x.title+'</b><div>'+x.text+'</div></div>';}).join('')+'</div>';
+}
+
 function buildTemplateCard(){
   var hasProd = getDiary(currentDate).some(function(e){ return !e.custom && e.productId && e.grams>0; });
   if(!hasProd) return '';
@@ -762,15 +888,17 @@ function nextTemplateCode(date){
 }
 
 function suggestNextSession(last, name){
-  if(!last || last.weight == null) return null;
+  if(!last) return null;
   var bw = isBodyweightName(name || last.name);
+  if(last.weight == null && !bw) return null;
   var sets = parseSetArray(last.sets);
   if(!sets.length) return {weight:last.weight, sets:bw?'1/1/1':'8/8/8', text:'Начни с контролируемых подходов и оставляй 2–3 повтора в запасе.'};
 
   var rir = Array.isArray(last.rirBySet) && last.rirBySet.length
     ? last.rirBySet.map(function(x){return x==null?null:Number(x);})
     : (last.rir != null ? sets.map(function(){return Number(last.rir);}) : []);
-  var minRir = rir.length ? Math.min.apply(null,rir.filter(function(x){return x!=null && isFinite(x);})) : null;
+  var validRir = rir.filter(function(x){return x!=null && isFinite(x);});
+  var minRir = validRir.length ? Math.min.apply(null,validRir) : null;
   // Если хотя бы один подход был почти до отказа — не повышаем нагрузку.
   if(minRir != null && minRir <= 1){
     return {weight:last.weight, sets:sets.join('/'), text:'В одном из подходов оставался 0–1 повтор в запасе. Повтори тот же вес и повторы, без повышения нагрузки.'};
@@ -820,9 +948,9 @@ function getLastRealSession(exerciseName, beforeDate){
   var hist = collectExerciseHistory(exerciseName);
   var prev = hist.filter(function(h){
     if(beforeDate && h.date >= beforeDate) return false;
-    // пропускаем пустые «только план»
+    // пропускаем пустые «только план»; собственный вес допустим без внешнего отягощения
     if(h.planned && !h.done) return false;
-    return h.weight != null;
+    return h.weight != null || isBodyweightName(h.name) && !!h.sets;
   });
   return prev.length ? prev[prev.length-1] : null;
 }
@@ -856,9 +984,10 @@ function findTemplateTrainingDate(forDate){
  * → совет: +вес или +повторы (та же логика, что и у плана на следующую)
  */
 function feedbackAfterSession(done, target){
-  if(!done || done.weight == null) return null;
+  if(!done || (done.weight == null && !isBodyweightName(done.name))) return null;
   var dSets = parseSetArray(done.sets);
   var tSets = target ? parseSetArray(target.sets || target.targetSets) : [];
+  var bw = isBodyweightName(done.name);
   var dW = done.weight;
   var tW = target && target.weight != null ? target.weight : (target && target.targetWeight);
   if(!dSets.length) return { text: 'Запиши повторы, чтобы дать совет по прогрессии.' };
@@ -867,7 +996,7 @@ function feedbackAfterSession(done, target){
   var dAll = dSets.every(function(r){ return r === dMax; });
 
   // не добил цель по повторам на том же весе
-  if(tW != null && dW <= tW && tSets.length){
+  if(!bw && tW != null && dW != null && dW <= tW && tSets.length){
     var tMin = Math.min.apply(null, tSets);
     if(dMin < tMin || (!dAll && dMin < dMax)){
       return {
@@ -878,10 +1007,10 @@ function feedbackAfterSession(done, target){
   }
   var next = suggestNextSession(done, done.name);
   if(!next) return null;
-  var up = next.weight > dW;
+  var up = !bw && next.weight > dW;
   return {
     kind: up ? 'weight' : 'reps',
-    text: (dAll ? 'Отлично, все подходы по '+dMax+'. ' : 'Сейчас '+done.sets+'. ') + 'Следующий раз: '+next.weight+' кг · '+next.sets+'.'
+    text: (dAll ? 'Отлично, все подходы по '+dMax+'. ' : 'Сейчас '+done.sets+'. ') + 'Следующий раз: '+(bw?'собственный вес':next.weight+' кг')+' · '+next.sets+'.'
   };
 }
 
@@ -889,7 +1018,7 @@ function feedbackAfterSession(done, target){
 function planForExercise(item, date){
   var last = getLastRealSession(item.name, date);
   var next = null, fromDate = null, startNote = '';
-  if(last && last.weight != null && !setsBroken(last.sets)){
+  if(last && (last.weight != null || item.bw || isBodyweightName(item.name)) && !setsBroken(last.sets)){
     next = suggestNextSession(last, item.name);
     fromDate = last.date;
   }
@@ -998,12 +1127,13 @@ function collectExerciseHistory(exerciseName){
   var pts = [];
   function scanDate(date, list){
     (list||[]).forEach(function(w){
-      if(((w.name||'').toLowerCase() === nameLower || exerciseMatchKey(w.name) === matchKey) && w.weight != null && !isNaN(w.weight)){
+      if(((w.name||'').toLowerCase() === nameLower || exerciseMatchKey(w.name) === matchKey) && (w.weight != null && !isNaN(w.weight) || isBodyweightName(w.name) && w.sets)){
         // пропускаем чисто плановые без факта
         if(w.planned && !w.done && !(w.sets && String(w.sets).trim())) return;
         var reps = parseTotalReps(w.sets||'');
-        var volume = w.weight * (reps > 0 ? reps : 1);
-        pts.push({date:date, weight:w.weight, sets:w.sets||'', reps:reps, volume:volume, rir:w.rir==null?null:+w.rir, planned:!!w.planned, done:!!w.done});
+        var bodyweight = isBodyweightName(w.name) && w.weight == null;
+        var volume = bodyweight ? reps : w.weight * (reps > 0 ? reps : 1);
+        pts.push({date:date, weight:w.weight, bodyweight:bodyweight, sets:w.sets||'', reps:reps, volume:volume, rir:w.rir==null?null:+w.rir, planned:!!w.planned, done:!!w.done});
       }
     });
   }
@@ -1060,9 +1190,10 @@ function exerciseProgressSvg(history){
     '<text x="'+(W-padR)+'" y="'+(H-4)+'" font-size="9" fill="#8a8a7d" text-anchor="end">'+history[history.length-1].date.slice(5)+'</text>';
   var first = history[0], last = history[history.length-1];
   var dVol = round(last.volume - first.volume);
-  var dWt = round(last.weight - first.weight);
+  var bodyweightOnly = history.every(function(h){return h.bodyweight;});
+  var dWt = bodyweightOnly ? 0 : round((last.weight||0) - (first.weight||0));
   var dReps = (last.reps||0) - (first.reps||0);
-  var summary = first.weight+' кг × '+first.reps+' → '+last.weight+' кг × '+last.reps;
+  var summary = bodyweightOnly ? (first.reps+' повт. → '+last.reps+' повт.') : (first.weight+' кг × '+first.reps+' → '+last.weight+' кг × '+last.reps);
   var deltas = [];
   if(dWt) deltas.push((dWt>0?'+':'')+dWt+' кг');
   if(dReps) deltas.push((dReps>0?'+':'')+dReps+' повт.');
@@ -1519,10 +1650,10 @@ function render(){
   const content = document.getElementById('content');
   const fab = document.getElementById('fab');
   if(activeTab==='diary'){ renderDiaryTab(content, fab); }
-  if(!_storageOk){ content.insertAdjacentHTML('afterbegin','<div class="card" style="border:1px solid var(--red);color:var(--red);font-size:12px;margin-bottom:10px;"><b>Внимание: постоянное сохранение недоступно.</b><br>Изменения могут исчезнуть после закрытия страницы. Сделай экспорт и проверь доступ к хранилищу браузера.</div>'); }
   else if(activeTab==='products'){ renderProductsTab(content, fab); }
   else if(activeTab==='report'){ renderReportTab(content, fab); }
   else { activeTab='diary'; renderDiaryTab(content, fab); }
+  if(!_storageOk){ content.insertAdjacentHTML('afterbegin','<div class="card" style="border:1px solid var(--red);color:var(--red);font-size:12px;margin-bottom:10px;"><b>Внимание: постоянное сохранение недоступно.</b><br>Изменения могут исчезнуть после закрытия страницы. Сделай экспорт и проверь доступ к хранилищу браузера.</div>'); }
 }
 
 function renderReceipt(){
@@ -1551,7 +1682,6 @@ function renderReceipt(){
   var vfGoal = goals.vegFruitTarget || 500;
   var vf = t.veg + t.fruit;
   el.innerHTML = `
-    <div class="app-version">КБЖУ — ДНЕВНИК · v12</div>
     <div class="receipt-date">
       <button data-nav="-1">‹</button>
       <div style="text-align:center;">
@@ -1699,7 +1829,7 @@ function renderDiaryTab(content, fab){
     return `<div style="font-size:12.5px;line-height:1.45;margin:4px 0;color:${col};">${t.text}</div>`;
   }).join('')}</div>` : '';
   var tplCard = buildTemplateCard();
-  adjNote = weeklyNutritionStatusHtml(currentDate) + tipsHtml + tplCard + adjNote;
+  adjNote = renderNutritionDiagnostics(currentDate) + weeklyNutritionStatusHtml(currentDate) + tipsHtml + tplCard + adjNote;
 
   function entryRow(e){
     var m = entryMacros(e);
@@ -2062,10 +2192,10 @@ function openWorkoutForm(existing){
     if(existing){
       existing.name = name;
       existing.note = note;
-      existing.weight = isNaN(weight) ? null : weight;
+      existing.weight = isNaN(weight) ? (isBodyweightName(name) ? bodyKgNow() : null) : weight;
       existing.sets = sets;
       existing.rirBySet = rirArr; existing.rir = rirArr.length ? Math.min.apply(null,rirArr) : null;
-      existing.done = !!(sets && !isNaN(weight));
+      existing.done = !!(sets && (!isNaN(weight) || isBodyweightName(name)));
       existing.planned = existing.planned || false;
       var fb = feedbackAfterSession(existing, {
         weight: existing.targetWeight != null ? existing.targetWeight : existing.weight,
@@ -3292,7 +3422,7 @@ function exercisePlateaus(daysBack){
   function addSession(date,w){
     if(!w||!w.done||!w.sets||w.weight==null||!isFinite(+w.weight)||+w.weight<=0)return;
     var reps=parseSetArray(w.sets);if(!reps.length)return;
-    var rir=Array.isArray(w.rirBySet)?w.rirBySet:[];
+    var rir=Array.isArray(w.rirBySet)?w.rirBySet:(w.rir!=null?reps.map(function(){return +w.rir;}):[]);
     var e1rm=0;
     reps.forEach(function(r,i){var reserve=rir[i]==null?0:Math.min(4,+rir[i]);var est=+w.weight*(1+(r+reserve)/30);if(est>e1rm)e1rm=est;});
     var key=String(w.name||'Упражнение').trim();(by[key]||(by[key]={}))[date]=Math.max((by[key][date]||0),e1rm);
@@ -3429,6 +3559,7 @@ function renderReportTab(content, fab){
     <div class="section-title">Неделя к неделе</div>
     ${weekPairReportHtml}
     ${trainingInsightsHtml}
+    ${renderTrainingDiagnostics()}
     ${plateauHtml}
     ${trainingSummaryHtml}
     <div class="section-title">По дням</div>
@@ -3615,7 +3746,7 @@ function collectAllData(){
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('recovery:')===0&&!recovery[k.slice(9)])recovery[k.slice(9)]=_memStore[k];});
   return {
     version: 9,
-    appVersion: 12,
+    appVersion: 13,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,
@@ -3648,7 +3779,7 @@ async function exportData(){
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kbju-backup-v12-' + todayStr() + '.json';
+    a.download = 'kbju-backup-v13-' + todayStr() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3677,7 +3808,7 @@ async function exportCSV(){
   try{
     await flushIndexedDB();
     var data=collectAllData();
-    var rows=[['Раздел','Дата','Название / параметр','Количество / вес','Ккал','Белки, г','Жиры, г','Углеводы, г','Клетчатка, г','Подходы / значение','RIR по подходам','Статус']];
+    var rows=[['Приложение','КБЖУ — дневник','Версия','13'],['Раздел','Дата','Название / параметр','Количество / вес','Ккал','Белки, г','Жиры, г','Углеводы, г','Клетчатка, г','Подходы / значение','RIR по подходам','Статус']];
     function v(x,k){return x&&x[k]!=null?x[k]:'';}
     Object.keys(data.diary||{}).sort().forEach(function(d){(data.diary[d]||[]).forEach(function(x){rows.push(['Питание',d,v(x,'name')||v(x,'productName'),v(x,'grams')!==''?v(x,'grams'):v(x,'amount'),v(x,'kcal'),v(x,'protein'),v(x,'fat'),v(x,'carbs'),v(x,'fiber'),'','','']);});});
     Object.keys(data.workouts||{}).sort().forEach(function(d){(data.workouts[d]||[]).forEach(function(x){rows.push(['Тренировка',d,v(x,'name'),v(x,'weight'),'','','','','',v(x,'sets'),Array.isArray(x.rirBySet)?x.rirBySet.join('/'):(x.rir==null?'':x.rir),(x.done?'выполнено':(x.planned?'план':''))+(x.note?' · '+x.note:'')]);});});
@@ -3692,7 +3823,7 @@ async function exportCSV(){
     rows.push(['Цель объёма мышц','','Подходы на мышцу за неделю',(data.muscleVolumeTargets||{}).min+'–'+(data.muscleVolumeTargets||{}).max,'','','','','','','','']);
     Object.keys(data.goals||{}).sort().forEach(function(k){rows.push(['Цели','',k,data.goals[k],'','','','','','','','']);});
     var csv='\ufeff'+rows.map(function(r){return r.map(csvCell).join(';');}).join('\r\n');
-    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v12-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v13-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
     showToast('CSV-файл подготовлен');
   }catch(e){showToast('Ошибка CSV-экспорта');}
 }
@@ -4311,7 +4442,7 @@ function openProductForm(existing){
     const portionName = (document.getElementById('pPortionName').value || '').trim();
     const portionGrams = parseFloat(document.getElementById('pPortionGrams').value);
     if(!name || isNaN(kcal)){ showToast('Заполни название и калории'); return; }
-    var dataWarnings = foodDataWarnings({kcal:kcal,protein:protein,fat:fat,carbs:carbs});
+    var dataWarnings = foodDataWarnings({kcal:kcal,protein:protein,fat:fat,carbs:carbs,fiber:isNaN(fiber)?0:fiber});
     if(dataWarnings.length){
       var proceed = confirm('Проверь данные продукта:\n\n'+dataWarnings.join('\n')+'\n\nВсё равно сохранить?');
       if(!proceed) return;

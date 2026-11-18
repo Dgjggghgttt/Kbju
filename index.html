@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v28</title>
+<title>КБЖУ — дневник v29</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v28">
-<meta name="application-version" content="28">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v29">
+<meta name="application-version" content="29">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 28">
+  <div class="app-build-tag" aria-label="Версия приложения 29">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 28</span>
+    <span class="app-build-version">ВЕРСИЯ 29</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -2134,7 +2134,8 @@ function workoutSetQuality(w){
 
 function exerciseGuideData(name){
   var n=(name||'').toLowerCase();
-  if(/подтяг/.test(n)) return {title:'Подтягивания обратным хватом',steps:['Повисни на перекладине обратным хватом, кисти примерно на ширине плеч.','Опускай лопатки и веди локти вниз, поднимая грудь к перекладине.','Опустись подконтрольно почти до полного разгибания рук.'],cues:['Не раскачивайся и не делай рывок ногами.','Не задирай подбородок вместо подъёма корпуса.','Работай в комфортной амплитуде; если пока тяжело — делай негативы.'],kind:'pullup'};
+  if(/разгиб.*гантел.*(из-за|за голов)|из-за головы/.test(n)) return {title:'Разгибание гантели из-за головы',steps:['Встань или сядь устойчиво. Возьми одну гантель обеими руками за верхний диск и подними над головой.','Согни локти, опуская гантель за голову. Плечи удерживай примерно вертикально, локти направлены вперёд и слегка внутрь.','Разогни локти и верни гантель вверх, не меняя положения плеч.'],cues:['Двигай предплечьями в локтевых суставах; не превращай движение в жим плечами.','Не разводи локти чрезмерно широко, но и не пытайся насильно свести их.','Не прогибай поясницу; напряги живот и ягодицы.','Используй безболезненную глубину опускания.'],kind:'overhead_triceps'};
+  if(/подтяг/.test(n)) {var sup=/обратн|нижн|chin/.test(n);return {title:sup?'Подтягивания обратным хватом':'Подтягивания прямым хватом',steps:[sup?'Повисни обратным хватом: ладони к себе, кисти примерно на ширине плеч.':'Повисни прямым хватом: ладони от себя, хват немного шире плеч.', 'Начни движение лопатками, затем веди локти вниз и поднимай грудь к перекладине.','Опустись подконтрольно до комфортного почти полного разгибания рук.'],cues:['Не раскачивайся и не делай рывок ногами.','Не тянись подбородком отдельно от корпуса.','Если пока не получается подтянуться — используй контролируемые негативы или помощь ногами.'],kind:'pullup'};}
   if(/жим/.test(n) && /(узк|трицепс)/.test(n)) return {title:'Жим штанги лёжа на полу узким хватом',steps:['Ляг на пол, согни ноги. Возьми гриф уже ширины плеч, кисти над локтями.','Опускай гриф к нижней части груди, локти ближе к корпусу.','Выжми гриф вверх, не ударяя локтями о пол.'],cues:['Не делай хват чрезмерно узким: кисти остаются комфортно.','Запястья держи над локтями.','Не отбивай руки от пола; движение контролируемое.'],kind:'closepress'};
   if(/жим/.test(n) && /(полу|пол)/.test(n)) return {title:'Жим штанги лёжа на полу',steps:['Ляг на пол, лопатки собраны, гриф над нижней частью груди.','Опускай локти до мягкого касания пола.','Выжми штангу вверх, сохраняя контроль корпуса.'],cues:['Не отбивай локти от пола.','Кисти находятся над предплечьями.','Не прогибай поясницу чрезмерно.'],kind:'floorpress'};
   if(/молот/.test(n)) return {title:'Молотковые сгибания гантелей',steps:['Стой ровно, гантели у бёдер, ладони смотрят друг на друга.','Согни локти, поднимая гантели без разворота кистей.','Медленно опусти гантели в исходное положение.'],cues:['Локти держи около корпуса.','Не раскачивай туловище.','Опускай медленнее, чем поднимаешь.'],kind:'hammer'};
@@ -2168,6 +2169,7 @@ function exerciseRomCue(kind){
     pullup:'Внизу — контролируемое почти полное разгибание локтей без провисания в болезненном положении. Вверху — подбородок выше перекладины или максимально высокая точка без рывка.',
     floorpress:'Опускайся до мягкого касания плечами/трицепсами пола. Пол ограничивает глубину — не пытайся продавить дополнительную амплитуду поясницей.',
     closepress:'Опускай гриф до комфортного касания верхней части рук с полом; запястья над локтями. Не отбивай локти.',
+    overhead_triceps:'Опускай гантель за голову настолько глубоко, насколько позволяет комфортная подвижность плеч без боли и прогиба поясницы. Внизу локоть согнут; затем полностью разогни локоть, не меняя положения плеч.',
     hammer:'Внизу почти полностью выпрями локоть, не расслабляя плечо; вверху согни до максимума без движения локтя вперёд.',
     curl:'Внизу почти полное разгибание локтя без переразгибания; вверху максимальное сгибание без выноса локтей и раскачки.',
     press:'Начинай у верхней части груди, выжимай до почти полного разгибания локтей над плечами. Не компенсируй нехватку амплитуды прогибом.',
@@ -2179,11 +2181,18 @@ function exerciseRomCue(kind){
 function openExerciseGuide(name){
   var d=exerciseGuideData(name),root=document.getElementById('modalRoot');
   var base='https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
-  var folders={curl:'Barbell_Curl',hammer:'Cross_Body_Hammer_Curl',pullup:'Pullups',raise:'Side_Lateral_Raise',press:'Standing_Military_Press',floorpress:'Dumbbell_Floor_Press',closepress:'Dumbbell_Floor_Press',generic:'Pushups'};
-  var folder=folders[d.kind]||folders.generic; if(d.kind==='curl' && /поперем|гантел/.test(String(name).toLowerCase())) folder='Dumbbell_Bicep_Curl'; if(d.kind==='pullup') folder='Chin-Up';
-  var photos=[0,1].map(function(i){return base+folder+'/'+i+'.jpg';});
-  var gallery=photos.map(function(src,i){return '<div style="min-width:78%;"><img src="'+src+'" alt="'+escapeHTML(d.title)+' — фото '+(i+1)+'" loading="lazy" style="width:100%;height:190px;object-fit:contain;background:#f4f3ee;border-radius:12px;""><div style="font-size:11px;color:var(--muted);margin-top:4px;">'+(i+1)+' / 2</div></div>';}).join('');
-  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>'+escapeHTML(d.title)+' · техника</h2><div style="display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:8px;">'+gallery+'</div><div class="card" style="padding:10px 12px;margin-top:8px;"><b style="font-size:13px;">Амплитуда движения</b><div style="font-size:12px;line-height:1.4;margin-top:6px;">'+exerciseRomCue(d.kind)+'</div><b style="font-size:13px;display:block;margin-top:10px;">Техника</b>'+d.steps.map(function(x,i){return '<div style="font-size:12px;line-height:1.4;margin-top:7px;"><b>'+(i+1)+'.</b> '+escapeHTML(x)+'</div>';}).join('')+d.cues.map(function(x){return '<div style="font-size:12px;line-height:1.4;margin-top:6px;">• '+escapeHTML(x)+'</div>';}).join('')+'</div><button class="btn primary" id="closeGuide" style="width:100%;">Понятно</button></div></div>';
+  var folder=null;
+  if(d.kind==='curl') folder=/поперем|гантел/.test(String(name).toLowerCase())?'Dumbbell_Bicep_Curl':'Barbell_Curl';
+  if(d.kind==='hammer') folder='Hammer_Curls';
+  if(d.kind==='pullup') folder=/обратн|нижн|chin/i.test(String(name))?'Chin-Up':'Pullups';
+  if(d.kind==='raise') folder='Side_Lateral_Raise';
+  if(d.kind==='press') folder='Standing_Military_Press';
+  // Floor-press instructions in this app are for a barbell; the DB reference photo is not an exact match.
+  // No guessed image for overhead triceps extensions or unrecognized exercises.
+  var gallery='';
+  if(folder){var photos=[0,1].map(function(i){return base+folder+'/'+i+'.jpg';});gallery=photos.map(function(src,i){return '<div style="min-width:78%;"><img src="'+src+'" alt="'+escapeHTML(d.title)+' — фото '+(i+1)+'" loading="lazy" style="width:100%;height:190px;object-fit:contain;background:#f4f3ee;border-radius:12px;"><div style="font-size:11px;color:var(--muted);margin-top:4px;">'+(i+1)+' / 2</div></div>';}).join('');}
+  var galleryHtml=gallery?'<div style="display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:8px;">'+gallery+'</div>':'<div class="card" style="padding:12px;margin-top:8px;font-size:12px;color:var(--muted);">Для этого варианта упражнения нет проверенной фотографии. Вместо чужого движения фото намеренно не показывается.</div>';
+  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>'+escapeHTML(d.title)+' · техника</h2>'+galleryHtml+'<div class="card" style="padding:10px 12px;margin-top:8px;"><b style="font-size:13px;">Амплитуда движения</b><div style="font-size:12px;line-height:1.4;margin-top:6px;">'+exerciseRomCue(d.kind)+'</div><b style="font-size:13px;display:block;margin-top:10px;">Техника</b>'+d.steps.map(function(x,i){return '<div style="font-size:12px;line-height:1.4;margin-top:7px;"><b>'+(i+1)+'.</b> '+escapeHTML(x)+'</div>';}).join('')+d.cues.map(function(x){return '<div style="font-size:12px;line-height:1.4;margin-top:6px;">• '+escapeHTML(x)+'</div>';}).join('')+'</div><button class="btn primary" id="closeGuide" style="width:100%;">Понятно</button></div></div>';
   document.getElementById('closeGuide').onclick=closeModal;
   document.getElementById('ov').onclick=function(e){if(e.target.id==='ov')closeModal();};
 }
@@ -3802,7 +3811,7 @@ function collectAllData(){
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('recovery:')===0&&!recovery[k.slice(9)])recovery[k.slice(9)]=_memStore[k];});
   return {
     version: 9,
-    appVersion: 27,
+    appVersion: 29,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,
@@ -3836,7 +3845,7 @@ async function exportData(){
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kbju-backup-v16-' + todayStr() + '.json';
+    a.download = 'kbju-backup-v29-' + todayStr() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3865,7 +3874,7 @@ async function exportCSV(){
   try{
     await flushIndexedDB();
     var data=collectAllData();
-    var rows=[['Приложение','КБЖУ — дневник','Версия','26'],['Раздел','Дата','Название / параметр','Количество / вес','Ккал','Белки, г','Жиры, г','Углеводы, г','Клетчатка, г','Подходы / значение','RIR по подходам','Статус']];
+    var rows=[['Приложение','КБЖУ — дневник','Версия','29'],['Раздел','Дата','Название / параметр','Количество / вес','Ккал','Белки, г','Жиры, г','Углеводы, г','Клетчатка, г','Подходы / значение','RIR по подходам','Статус']];
     function v(x,k){return x&&x[k]!=null?x[k]:'';}
     Object.keys(data.diary||{}).sort().forEach(function(d){(data.diary[d]||[]).forEach(function(x){var m=entryMacros(x);rows.push(['Питание',d,m.name,m.grams==null?'':m.grams,round(m.kcal),round(m.protein),round(m.fat),round(m.carbs),round(m.fiber),'','','']);});});
     Object.keys(data.workouts||{}).sort().forEach(function(d){(data.workouts[d]||[]).forEach(function(x){rows.push(['Тренировка',d,v(x,'name'),v(x,'weight'),'','','','','',v(x,'sets'),Array.isArray(x.rirBySet)?x.rirBySet.join('/'):(x.rir==null?'':x.rir),(x.done?'выполнено':(x.planned?'план':''))+(x.note?' · '+x.note:'')]);});});
@@ -3880,7 +3889,7 @@ async function exportCSV(){
     rows.push(['Цель объёма мышц','','Подходы на мышцу за неделю',(data.muscleVolumeTargets||{}).min+'–'+(data.muscleVolumeTargets||{}).max,'','','','','','','','']);
     Object.keys(data.goals||{}).sort().forEach(function(k){rows.push(['Цели','',k,data.goals[k],'','','','','','','','']);});
     var csv='\ufeff'+rows.map(function(r){return r.map(csvCell).join(';');}).join('\r\n');
-    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v20-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v29-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
     showToast('CSV-файл подготовлен');
   }catch(e){showToast('Ошибка CSV-экспорта');}
 }

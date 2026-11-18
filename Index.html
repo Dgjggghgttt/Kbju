@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v9</title>
+<title>КБЖУ — дневник v12</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v8">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v12">
+<meta name="application-version" content="12">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -47,6 +48,7 @@
     padding:18px 20px 14px;
     border-bottom:1px dashed var(--line);
   }
+  .app-version{font-size:10px;letter-spacing:.5px;color:var(--muted);text-align:center;margin:-7px 0 8px;font-family:var(--mono);}
   .receipt-date{
     display:flex; align-items:center; justify-content:space-between;
     margin-bottom:10px;
@@ -308,10 +310,10 @@ function isTrainingDay(date){
   return list.some(function(w){ return w.done || (w.sets && String(w.sets).trim()); });
 }
 function macrosFromDeficitPlan(planKcal){
-  // Белок 150 фикс.
+  // Белок берём из персональной цели, а не подменяем фиксированными 150 г.
   // Жир: 30–50 г (средний за неделю), при росте плана жир НЕ увеличиваем — только углеводы.
   // Углеводы: остаток, можно 0.
-  var protein = 150;
+  var protein = Math.max(1, Number(goals.protein) || 150);
   var protKcal = protein * 4;
   var plan = Math.round(planKcal);
   if(plan < 1200) plan = 1200;
@@ -385,12 +387,18 @@ function baseGoals(date){
   if(isMaintenanceDay(date)){
     var mk = effectiveMaintenanceKcal();
     var fatM = Math.max(30, Math.min(50, goals.fat != null ? goals.fat : 45));
-    var carbM = Math.round(Math.max(0, mk - 150 * 4 - fatM * 9) / 4);
-    return { kcal: mk, protein: 150, fat: fatM, carbs: carbM, isMaintenance: true };
+    var carbM = Math.round(Math.max(0, mk - protein * 4 - fatM * 9) / 4);
+    return { kcal: mk, protein: protein, fat: fatM, carbs: carbM, isMaintenance: true };
   }
   return { kcal: planKcal, protein: protein, fat: fat, carbs: carbs, isMaintenance: false };
 }
 // start of week = Monday
+function averageBaseGoalForWeek(endDate, key){
+  var sum = 0;
+  for(var i=0;i<7;i++) sum += Number(baseGoals(shiftDate(endDate || currentDate, -i))[key]) || 0;
+  return sum / 7;
+}
+
 function weekMonday(date){
   var p = date.split('-');
   var d = new Date(+p[0], +p[1]-1, +p[2]);
@@ -408,74 +416,13 @@ function proteinGoalFor(date){
 }
 
 function activeGoals(date){
-  date = date || currentDate;
-  var base = baseGoals(date);
-  var adjusted = {
-    kcal: base.kcal,
-    protein: base.protein,
-    fat: base.fat,
-    carbs: base.carbs,
-    weightPaceBoost: false
-  };
-
-  // Спокойный режим: только базовые цели, без переноса недобора между днями
-  if(goals.smartAdjust === false){
-    return adjusted;
-  }
-
-  var train = isTrainingDay(date);
-  var deltaK = 0, deltaC = 0, deltaF = 0;
-  for(var i=1;i<=6;i++){
-    var d = shiftDate(date, -i);
-    if(!getDiary(d).length) continue;
-    // срыв в день поддержки — не компенсируем голодом
-    if(isMaintenanceDay(d)) continue;
-    var bg = baseGoals(d);
-    var t = computeTotals(getDiary(d));
-    deltaK += Math.max(0, t.kcal - bg.kcal);
-    deltaC += Math.max(0, t.carbs - bg.carbs);
-    deltaF += Math.max(0, t.fat - bg.fat);
-  }
-
-  if(deltaK > 0) adjusted.kcal = round(base.kcal - deltaK / 7);
-  if(deltaC > 0) adjusted.carbs = round(base.carbs - deltaC / 7);
-  if(deltaF > 0) adjusted.fat = round(base.fat - deltaF / 7);
-
-  var yest = shiftDate(date, -1);
-  var protectCarbs = false;
-  if(getDiary(yest).length && isTrainingDay(yest)){
-    var yBg = baseGoals(yest);
-    var yT = computeTotals(getDiary(yest));
-    if(yBg.carbs > 0 && yT.carbs / yBg.carbs < 0.8){
-      protectCarbs = true;
-      adjusted.carbs = base.carbs;
-    }
-  }
-
-  var carbMin = train ? base.carbs * 0.85 : base.carbs * 0.75;
-  if(protectCarbs) carbMin = base.carbs;
-  adjusted.carbs = Math.max(carbMin, Math.min(base.carbs, adjusted.carbs));
-  adjusted.fat = Math.max(30, Math.min(50, Math.max(base.fat * 0.7, Math.min(base.fat, adjusted.fat))));
-  var kcalMin = Math.max(MIN_DAY_KCAL, Math.round(base.kcal * 0.75));
-  adjusted.kcal = Math.max(kcalMin, Math.min(MAX_DAY_KCAL, Math.min(base.kcal, adjusted.kcal)));
-
-  var pace = weeklyWeightPace(0);
-  if(pace && pace.delta < -pace.safeMax){
-    var excessKg = (-pace.delta) - pace.safeMax;
-    var carbBoost = Math.min(60, Math.max(15, Math.round(excessKg * 50)));
-    adjusted.carbs = Math.min(base.carbs + carbBoost, base.carbs + 60);
-    adjusted.kcal = Math.min(MAX_DAY_KCAL, Math.max(adjusted.kcal, base.kcal) + carbBoost * 4);
-    if(adjusted.carbs < base.carbs) adjusted.carbs = base.carbs;
-    adjusted.weightPaceBoost = true;
-    adjusted.weightPaceDelta = pace.delta;
-    adjusted.weightPaceSafe = pace.safeMax;
-    adjusted.carbBoost = carbBoost;
-  }
-
-  return adjusted;
+  // Никаких переносов между днями: калории, жиры и углеводы не урезаются
+  // из-за вчерашнего превышения. Контроль калорий и жиров идёт по средней недели.
+  // Белок всегда остаётся отдельной ежедневной целью.
+  return baseGoals(date || currentDate);
 }
 
-/** Средние макросы за последние n дней с едой (включая date) */
+/** Средние макросы за последние n полностью отмеченных дней (включая date) */
 function weeklyMacroAverages(endDate, n){
   n = n || 7;
   endDate = endDate || todayStr();
@@ -483,9 +430,9 @@ function weeklyMacroAverages(endDate, n){
   for(var i=0;i<n;i++){
     var d = shiftDate(endDate, -i);
     var e = getDiary(d);
-    if(!e.length) continue;
+    if(!e.length || !getDayCompleteness(d)) continue;
     var t = computeTotals(e);
-    sum.kcal += t.kcal; sum.protein += t.protein; sum.fat += t.fat;
+    sum.kcal += (t.kcal - dayBikeBurn(d)); sum.protein += t.protein; sum.fat += t.fat;
     sum.carbs += t.carbs; sum.fiber += t.fiber;
     days++;
   }
@@ -499,8 +446,8 @@ function weeklyMacroAverages(endDate, n){
 
 /**
  * Логика добора:
- * 1) Белок 150/день, ≥30 г/приём — главный приоритет
- * 2) Ккал 1700 — ориентир СРЕДНЕГО за неделю, не жёсткий минимум дня
+ * 1) Персональная цель белка каждый день, ≥30 г за основной приём
+ * 2) Калории — ориентир СРЕДНЕГО за неделю, не жёсткий минимум дня
  * 3) Жиры — контроль среднего за неделю; <40 г/день в среднем → добирать
  * 4) Клетчатка 25–30 г/день
  * 5) Углеводы — не цель добора; только если нужно закрыть ккал после Б и Ж
@@ -509,9 +456,10 @@ function topUpDecision(date){
   date = date || currentDate;
   var g = activeGoals(date);
   var t = computeTotals(getDiary(date));
+  var netKcal = t.kcal - dayBikeBurn(date);
   var avg = weeklyMacroAverages(date, 7);
   var pGoal = g.protein || 150;
-  var kGoal = goals.kcal || 1500;
+  var kGoal = Math.round(averageBaseGoalForWeek(date, 'kcal')) || goals.kcal || 1500;
   var fGoal = goals.fiberTarget || 28;
   var fatFloor = 40;
   var reasonsNeed = [];
@@ -533,42 +481,42 @@ function topUpDecision(date){
   }
 
   // --- жиры (неделя) ---
-  if(avg && avg.days >= 3 && avg.fat < fatFloor){
+  if(avg && avg.days >= 5 && avg.fat < fatFloor){
     reasonsNeed.push({ pri:2, text: 'Средние жиры за '+avg.days+' дн. ~'+round(avg.fat)+' г (< '+fatFloor+') — добери жиры (яйцо, сыр, орехи, масло).' });
   } else if(t.fat < 25 && (!avg || avg.fat < 50)){
     reasonsNeed.push({ pri:2, text: 'Жиров сегодня мало ('+round(t.fat)+' г) — не обязательно, но полезно чуть добавить.' });
   }
 
   // --- калории: недельный баланс, не «дожать день до 1700» ---
-  // если неделя уже ~у цели, дневная «норма» мягче (~1500 при цели 1700)
-  var weekKcalOk = avg && avg.days >= 3 && avg.kcal >= kGoal * 0.90;
-  var weekKcalLow = avg && avg.days >= 3 && avg.kcal < kGoal * 0.85;
+  // если недельная средняя уже близка к цели, дневной недобор не требует автоматического добора
+  var weekKcalOk = avg && avg.days >= 5 && avg.kcal >= kGoal * 0.90;
+  var weekKcalLow = avg && avg.days >= 5 && avg.kcal < kGoal * 0.85;
   var dayKcalTarget = weekKcalOk ? Math.min(kGoal, Math.max(1300, Math.round(kGoal * 0.88))) : kGoal;
-  var kcalGap = dayKcalTarget - t.kcal;
+  var kcalGap = dayKcalTarget - netKcal;
   var proteinOk = t.protein >= pGoal * 0.95;
-  var fatWeekOk = !avg || avg.days < 3 || avg.fat >= fatFloor;
+  var fatWeekOk = !avg || avg.days < 5 || avg.fat >= fatFloor;
 
-  if(t.kcal < dayKcalTarget - 200 && proteinOk && fatWeekOk && t.fiber >= fGoal * 0.7){
+  if(netKcal < dayKcalTarget - 200 && proteinOk && fatWeekOk && t.fiber >= fGoal * 0.7){
     // «не хватает до 1700, но Б/Ж ок и неделя нормальная» → НЕ добирать углеводами
     if(weekKcalOk || !weekKcalLow){
-      reasonsSkip.push('сегодня '+round(t.kcal)+' ккал, неделя ~'+round(avg ? avg.kcal : 0)+' (ориентир '+kGoal+') — добирать бананом/углеводами до дневного максимума не нужно');
+      reasonsSkip.push('сегодня нетто '+round(netKcal)+' ккал, неделя ~'+round(avg ? avg.kcal : 0)+' (ориентир '+kGoal+') — добирать бананом/углеводами до дневного максимума не нужно');
     } else {
       reasonsNeed.push({ pri:4, text: 'Средние ккал за неделю низкие (~'+round(avg.kcal)+' при ориентире '+kGoal+'). Можно чуть добрать белком/жирами, не фруктом ради калорий.' });
     }
   } else if(kcalGap > 250 && !proteinOk){
     reasonsNeed.push({ pri:1, text: 'Белок не закрыт (−'+round(protMiss)+' г) — добери творог/рыбу/яйцо, не банан.' });
-  } else if(t.kcal < 1200 && getDiary(date).length){
-    reasonsNeed.push({ pri:2, text: 'Очень низкая калорийность дня ('+round(t.kcal)+'). Регулярно так не стоит — лучше белок/жиры.' });
+  } else if(netKcal < 1200 && getDiary(date).length){
+    reasonsNeed.push({ pri:2, text: 'Очень низкая калорийность дня (нетто '+round(netKcal)+'). Регулярно так не стоит — лучше белок/жиры.' });
   }
 
   reasonsNeed.sort(function(a,b){ return a.pri - b.pri; });
   var need = reasonsNeed.length > 0 && !(proteinOk && fatWeekOk && t.fiber >= fGoal * 0.7 && kcalGap > 200 && !weekKcalLow);
 
   // Переопределение need: если единственный «пробел» — ккал при закрытом Б и норм жирах — need = false
-  if(proteinOk && fatWeekOk && t.fiber >= fGoal * 0.65 && kcalGap > 0 && reasonsNeed.every(function(r){ return r.pri >= 4; })){
+  if(proteinOk && fatWeekOk && t.fiber >= fGoal * 0.65 && kcalGap > 0 && !weekKcalLow && reasonsNeed.every(function(r){ return r.pri >= 4; })){
     need = false;
   }
-  if(protMiss > 8 || (avg && avg.days >= 3 && avg.fat < fatFloor) || t.fiber < fGoal * 0.7){
+  if(protMiss > 8 || (avg && avg.days >= 5 && avg.fat < fatFloor) || t.fiber < fGoal * 0.7){
     need = reasonsNeed.length > 0;
   }
 
@@ -594,7 +542,27 @@ function dayAdvice(date){
   if(d.need && d.reasonsNeed.length){
     return [{ type: d.reasonsNeed[0].pri <= 2 ? 'warn' : 'info', text:d.reasonsNeed[0].text }];
   }
+  if(d.avg && d.avg.days >= 5){
+    return [{ type:'info', text:'Неделя под контролем: '+round(d.avg.kcal)+' ккал в среднем при ориентире около '+Math.round(averageBaseGoalForWeek(date, 'kcal'))+'. Не нужно компенсировать отдельный день.' }];
+  }
   return [];
+}
+
+function weeklyNutritionStatusHtml(date){
+  if((date || currentDate) !== todayStr()) return '';
+  var a=weeklyMacroAverages(date || currentDate,7);
+  if(!a || a.days<5) return '';
+  var kcalGoal=Math.round(averageBaseGoalForWeek(date || currentDate,'kcal'));
+  var kcalDiff=Math.round(a.kcal-kcalGoal);
+  var kcalState=Math.abs(kcalDiff)<=100?'в пределах ориентира':(kcalDiff<0?'ниже ориентира':'выше ориентира');
+  var fatState=a.fat<40?'ниже желательного минимума':(a.fat<=50?'в нормальном диапазоне':'выше 50 г');
+  return '<div class="card" style="margin-bottom:10px;padding:10px 12px;">'+
+    '<div style="font-weight:600;font-size:13px;margin-bottom:5px;">Автооценка недели · '+a.days+'/7 полных дней</div>'+
+    '<div class="entry"><div class="name">Калории в среднем</div><div class="kcal">'+round(a.kcal)+' / '+kcalGoal+' ккал</div></div>'+
+    '<div style="font-size:11.5px;color:var(--muted);margin:2px 0 5px;">'+kcalState+' · '+(kcalDiff>0?'+':'')+kcalDiff+' ккал/день</div>'+
+    '<div class="entry"><div class="name">Жиры в среднем</div><div class="kcal">'+round(a.fat)+' г</div></div>'+
+    '<div style="font-size:11.5px;color:var(--muted);margin-top:2px;">'+fatState+'. Ничего не нужно компенсировать отдельным днём.</div>'+
+    '</div>';
 }
 
 function buildTemplateCard(){
@@ -611,9 +579,11 @@ function saveDayAsTemplate(){
   dayTemplate = {
     entries: entries.map(function(e){
       if(e.custom){
-        return { custom:true, name:e.name, kcal:e.kcal, protein:e.protein, fat:e.fat, carbs:e.carbs, meal:e.meal };
+        return { custom:true, name:e.name, kcal:e.kcal, protein:e.protein, fat:e.fat, carbs:e.carbs, fiber:e.fiber||0, grams:e.grams, foodGroup:e.foodGroup||'other', meal:e.meal, time:e.time };
       }
-      return { productId:e.productId, grams:e.grams, meal:e.meal };
+      var prod = products.find(function(pr){return pr.id===e.productId;});
+      var snap = e.snap || (prod && e.grams>0 ? snapshotFromProduct(prod,e.grams) : null);
+      return { productId:e.productId, grams:e.grams, snap:snap, name:e.name, kcal:e.kcal, protein:e.protein, fat:e.fat, carbs:e.carbs, fiber:e.fiber, meal:e.meal, time:e.time };
     })
   };
   sSet('dayTemplate', dayTemplate);
@@ -629,11 +599,14 @@ function loadDayTemplate(){
   dayTemplate.entries.forEach(function(e){
     var row = { id: uid() };
     if(e.custom){
-      row.custom = true; row.name = e.name; row.kcal = e.kcal; row.protein = e.protein; row.fat = e.fat; row.carbs = e.carbs;
+      row.custom = true; row.name = e.name; row.kcal = e.kcal; row.protein = e.protein; row.fat = e.fat; row.carbs = e.carbs; row.fiber = e.fiber||0; row.grams=e.grams; row.foodGroup=e.foodGroup||'other';
     } else {
       row.productId = e.productId; row.grams = e.grams;
+      if(e.snap) row.snap = e.snap;
+      ['name','kcal','protein','fat','carbs','fiber'].forEach(function(k){if(e[k]!=null)row[k]=e[k];});
     }
     if(e.meal) row.meal = e.meal;
+    if(e.time) row.time = e.time;
     dest.push(row);
   });
   saveDiary(currentDate, dest);
@@ -789,63 +762,46 @@ function nextTemplateCode(date){
 }
 
 function suggestNextSession(last, name){
-  // RIR: при 0–1 повторе в запасе не повышаем нагрузку; сначала повторить результат или немного снизить объём.
-  if(last && last.rir != null && +last.rir <= 1){
-    return {weight:last.weight, sets:last.sets || '8/8/8', text:'Самый тяжёлый подход был почти до отказа (RIR '+last.rir+'). Не повышай вес: повтори нагрузку, сохраняя технику.'};
-  }
-  // Двойная прогрессия: повторы 8–12, потом +вес (гантели +2 кг) и сброс повторов
   if(!last || last.weight == null) return null;
   var bw = isBodyweightName(name || last.name);
   var sets = parseSetArray(last.sets);
-  var w = last.weight;
-  if(!sets.length){
-    return { weight: w, sets: bw ? '3/3/2/2' : '8/8/8', text: 'Начни с '+(bw?'':w+' кг · ')+(bw?'3/3/2/2':'3×8')+', доведи до 12, потом +вес.' };
-  }
-  var maxR = Math.max.apply(null, sets);
-  var minR = Math.min.apply(null, sets);
-  var allEqual = sets.every(function(r){ return r === maxR; });
+  if(!sets.length) return {weight:last.weight, sets:bw?'1/1/1':'8/8/8', text:'Начни с контролируемых подходов и оставляй 2–3 повтора в запасе.'};
 
-  // Свой вес (подтягивания, негативы, отжимания): только повторы
+  var rir = Array.isArray(last.rirBySet) && last.rirBySet.length
+    ? last.rirBySet.map(function(x){return x==null?null:Number(x);})
+    : (last.rir != null ? sets.map(function(){return Number(last.rir);}) : []);
+  var minRir = rir.length ? Math.min.apply(null,rir.filter(function(x){return x!=null && isFinite(x);})) : null;
+  // Если хотя бы один подход был почти до отказа — не повышаем нагрузку.
+  if(minRir != null && minRir <= 1){
+    return {weight:last.weight, sets:sets.join('/'), text:'В одном из подходов оставался 0–1 повтор в запасе. Повтори тот же вес и повторы, без повышения нагрузки.'};
+  }
+
+  var minRep = Math.min.apply(null,sets);
+  var maxRep = Math.max.apply(null,sets);
   if(bw){
-    var nx = sets.map(function(r){ return Math.min(15, r+1); });
-    return { weight: w, sets: nx.join('/'), text: 'Добавь по +1 повтору в каждом подходе: '+nx.join('/')+'.' };
+    if(minRir != null && minRir <= 2) return {weight:last.weight,sets:sets.join('/'),text:'Подтягивания или другое упражнение с собственным весом дались тяжело (RIR 0–2). Повтори тот же объём; не добавляй повторы через силу.'};
+    var bodyNext = sets.map(function(r){return Math.min(15,r+1);});
+    return {weight:last.weight, sets:bodyNext.join('/'), text:'Добавь по одному качественному повтору там, где техника сохраняется: '+bodyNext.join('/')+'. Не сокращай амплитуду.'};
   }
 
-  // Все подходы ≥12 → поднимаем вес, повторы считаем по оценке 1ПМ (Эпли), цель 8–12
-  if(minR >= 12){
-    var est = w * (1 + minR/30);
-    var newW = Math.round((w + 2) * 2) / 2;
-    var r = Math.floor((est / newW - 1) * 30);
-    if(r < 8){ newW = Math.round((w + 1) * 2) / 2; r = Math.floor((est / newW - 1) * 30); }
-    r = Math.max(8, Math.min(12, r));
-    var upSets = sets.map(function(){ return r; }).join('/');
-    return {
-      weight: newW,
-      sets: upSets,
-      text: 'Пора поднять вес: '+newW+' кг · '+upSets+' (было '+w+' кг · '+last.sets+').'
-    };
+  // Повышаем вес только когда каждый рабочий подход достиг верхней границы и запас не был критически мал.
+  if(minRep >= 12 && (minRir == null || minRir >= 2)){
+    var currentW = Number(last.weight);
+    var step = 1;
+    var nextW = Math.round((currentW + step) * 2) / 2;
+    var estimated = currentW * (1 + minRep/30);
+    var nextRep = Math.floor((estimated / nextW - 1) * 30);
+    if(nextRep < 8){ nextW = Math.round((currentW + 0.5) * 2) / 2; nextRep = Math.floor((estimated / nextW - 1) * 30); }
+    nextRep = Math.max(8, Math.min(12, nextRep));
+    var nextSets = sets.map(function(){return nextRep;}).join('/');
+    return {weight:nextW, sets:nextSets, text:'Все подходы достигли 12 повторов. Можно попробовать '+nextW+' кг и вернуться к '+nextSets+'. Если техника ухудшится — оставь прежний вес.'};
   }
 
-  // Подходы не ровные → сначала выровнять до лучшего
-  if(!allEqual && minR < maxR){
-    var nextStr = sets.map(function(){ return maxR; }).join('/');
-    return {
-      weight: w,
-      sets: nextStr,
-      text: 'Добей подходы до '+maxR+': '+w+' кг · '+nextStr+' (сейчас было '+last.sets+').'
-    };
-  }
-
-  // Ровно, но <12 → +повторы
-  var bumped = sets.slice();
-  bumped[0] = maxR + 2;
-  return {
-    weight: w,
-    sets: bumped.join('/'),
-    text: 'Добавь повторы: '+w+' кг · '+bumped.join('/')+'. Когда все подходы ≥12 — поднимем вес.'
-  };
+  // При неравных подходах добавляем повтор только там, где его не хватает.
+  var next = sets.map(function(r){return r===minRep ? Math.min(12,r+1) : r;});
+  if(minRir != null && minRir <= 1) return {weight:last.weight,sets:sets.join('/'),text:'Последняя тренировка была почти до отказа. Сохрани вес и повторы, пока не появится больший запас.'};
+  return {weight:last.weight, sets:next.join('/'), text:'Постепенно подтяни слабые подходы: '+last.weight+' кг · '+next.join('/')+'. Не нужно резко выравнивать все подходы по самому сильному.'};
 }
-
 
 function exerciseMatchKey(name){
   var n = (name||'').toLowerCase().replace(/[ё]/g,'е').replace(/[^а-яa-z0-9]+/g,' ').trim();
@@ -1128,6 +1084,13 @@ function defaultMealByTime(){
   return 'snack';
 }
 
+function isValidISODate(value){
+  if(typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  var p=value.split('-').map(Number);
+  var d=new Date(p[0],p[1]-1,p[2]);
+  return d.getFullYear()===p[0] && d.getMonth()===p[1]-1 && d.getDate()===p[2];
+}
+
 function todayStr(){
   var d = new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -1163,18 +1126,22 @@ function getDayCompleteness(date){
 function setDayCompleteness(date, complete){
   var map = sGet('dayCompleteness', {});
   if(!map || typeof map !== 'object' || Array.isArray(map)) map = {};
+  if(complete && !getDiary(date).length){showToast('Сначала добавь еду за день');return;}
   if(complete) map[date] = true; else delete map[date];
   sSet('dayCompleteness', map);
 }
 
 function getDiary(date){
-  if(diaryCache[date]) return diaryCache[date];
+  if(Array.isArray(diaryCache[date])) return diaryCache[date];
   var d = sGet('diary:'+date, []);
-  diaryCache[date] = d;
-  return d;
+  diaryCache[date] = Array.isArray(d) ? d : [];
+  return diaryCache[date];
 }
 function saveDiary(date, entries){
+  entries = Array.isArray(entries) ? entries : [];
   diaryCache[date] = entries;
+  // Изменённый дневник снова требует подтверждения полноты.
+  if(getDayCompleteness(date)) setDayCompleteness(date, false);
   sSet('diary:'+date, entries);
 }
 function getWorkouts(date){
@@ -1348,7 +1315,7 @@ function foodDataWarnings(item){
 
 function computeTotals(entries){
   var t = {kcal:0, protein:0, fat:0, carbs:0, fiber:0, veg:0, fruit:0};
-  entries.forEach(function(e){
+  (Array.isArray(entries) ? entries : []).forEach(function(e){
     var m = entryMacros(e);
     t.kcal += m.kcal; t.protein += m.protein; t.fat += m.fat; t.carbs += m.carbs;
     t.fiber += m.fiber||0; t.veg += m.vegGrams||0; t.fruit += m.fruitGrams||0;
@@ -1365,7 +1332,7 @@ function dietDiversity(days){
   for(var i=0;i<days;i++){
     var d = shiftDate(todayStr(), -i);
     var entries = getDiary(d);
-    if(!entries.length) continue;
+    if(!entries.length || !getDayCompleteness(d)) continue;
     daysWithFood++;
     var t = computeTotals(entries);
     fiberSum += t.fiber; vegSum += t.veg; fruitSum += t.fruit;
@@ -1584,6 +1551,7 @@ function renderReceipt(){
   var vfGoal = goals.vegFruitTarget || 500;
   var vf = t.veg + t.fruit;
   el.innerHTML = `
+    <div class="app-version">КБЖУ — ДНЕВНИК · v12</div>
     <div class="receipt-date">
       <button data-nav="-1">‹</button>
       <div style="text-align:center;">
@@ -1731,7 +1699,7 @@ function renderDiaryTab(content, fab){
     return `<div style="font-size:12.5px;line-height:1.45;margin:4px 0;color:${col};">${t.text}</div>`;
   }).join('')}</div>` : '';
   var tplCard = buildTemplateCard();
-  adjNote = tipsHtml + tplCard + adjNote;
+  adjNote = weeklyNutritionStatusHtml(currentDate) + tipsHtml + tplCard + adjNote;
 
   function entryRow(e){
     var m = entryMacros(e);
@@ -1796,13 +1764,23 @@ function renderDiaryTab(content, fab){
   }
 
   // Белковый план: сколько осталось и как распределить по оставшимся приёмам.
-  var proteinGoal = g.protein || 150;
+  var proteinGoal = proteinGoalFor(currentDate);
   var proteinLeft = Math.max(0, proteinGoal - dayTot.protein);
-  var mealCountDone = entries.length ? Object.keys(entries.reduce(function(a,e){a[e.meal||'other']=1;return a;},{})).length : 0;
-  var mealSlotsLeft = Math.max(1, 4 - mealCountDone);
-  html += `<div class="section-title">План белка на сегодня</div><div class="card" style="padding:12px 14px;">
-    <div class="entry"><div class="name">Осталось до цели</div><div class="kcal">${round(proteinLeft)} г из ${round(proteinGoal)} г</div></div>
-    <div style="font-size:12px;color:var(--muted);line-height:1.45;margin-top:5px;">${proteinLeft>0?'Ориентир — около '+round(proteinLeft/mealSlotsLeft)+' г за каждый из '+mealSlotsLeft+' оставшихся приёмов. Если приёмов больше не планируется, не нужно заставлять себя есть перед сном.':'Цель по белку выполнена.'}</div>
+  var mealProtein = {breakfast:0,lunch:0,dinner:0,snack:0};
+  entries.forEach(function(e){var key=MEAL_LABELS[e.meal]?e.meal:'snack';mealProtein[key]+=(entryMacros(e).protein||0);});
+  var mealNames = ['breakfast','lunch','dinner','snack'];
+  var mealRows = mealNames.filter(function(k){return mealProtein[k]>0 || k!=='snack';}).map(function(k){
+    var v=round(mealProtein[k]);
+    if(k==='snack') return '<div class="entry"><div class="name">'+MEAL_LABELS[k]+'</div><div class="kcal">'+v+' г</div></div>';
+    var ok=v>=30;
+    return '<div class="entry"><div class="name">'+MEAL_LABELS[k]+'</div><div class="kcal" style="color:'+(ok?'var(--green)':'var(--amber)')+'">'+v+' / 30 г</div></div>';
+  }).join('');
+  var lowMainMeals=['breakfast','lunch','dinner'].filter(function(k){return mealProtein[k]<30;});
+  var distributionTip=proteinLeft>0&&lowMainMeals.length?'<div style="font-size:12px;color:var(--green);line-height:1.45;margin-top:7px;">Чтобы закрыть дневную цель, осталось '+round(proteinLeft)+' г белка. Если впереди '+lowMainMeals.length+' основных приём(а), ориентир — около '+round(proteinLeft/lowMainMeals.length)+' г в каждом.</div>':'';
+  html += `<div class="section-title">Белок · цель на сегодня</div><div class="card" style="padding:12px 14px;">
+    <div class="entry"><div class="name">Осталось до дневной цели</div><div class="kcal">${round(proteinLeft)} г из ${round(proteinGoal)} г</div></div>
+    ${mealRows}${distributionTip}
+    <div style="font-size:12px;color:var(--muted);line-height:1.45;margin-top:7px;">30 г — ориентир для завтрака, обеда и ужина. Перекус учитывается в суточном белке, но не обязан отдельно достигать 30 г. Белок не переносится на другие дни.</div>
   </div>`;
 
   // Workout diary for the day — автозаполнение плана с прогрессией
@@ -1844,8 +1822,10 @@ function renderDiaryTab(content, fab){
 
   var completeBox = document.getElementById('dayCompleteCheck');
   if(completeBox) completeBox.onchange = function(){
+    if(completeBox.checked && !getDiary(currentDate).length){completeBox.checked=false;showToast('Пустой день нельзя отметить полным');return;}
     setDayCompleteness(currentDate, completeBox.checked);
     showToast(completeBox.checked ? 'День отмечен полным' : 'День отмечен неполным');
+    render();
   };
   var creatBox = document.getElementById('creatineCheck');
   if(creatBox){
@@ -2405,21 +2385,21 @@ function renderProductsTab(content, fab){
 var KCAL_PER_KG = 7700;
 
 function avgIntakeLastDays(n){
-  // n = null → all diary days with food
+  // n = null → all fully completed diary days with food
   // условное нетто = еда − оценка вело (учитываем расход к поддержанию)
   var total = 0, daysWithData = 0;
   if(n == null){
     var dates = collectDiaryDates();
     dates.forEach(function(d){
       var t = computeTotals(getDiary(d));
-      if(t.kcal > 0){ total += (t.kcal - dayBikeBurn(d)); daysWithData++; }
+      if(getDayCompleteness(d) && t.kcal > 0){ total += (t.kcal - dayBikeBurn(d)); daysWithData++; }
     });
   } else {
     // последние n дней включая сегодня: 0 … n-1
     for(var i=0;i<n;i++){
       var d = shiftDate(todayStr(), -i);
       var t = computeTotals(getDiary(d));
-      if(t.kcal > 0){ total += (t.kcal - dayBikeBurn(d)); daysWithData++; }
+      if(getDayCompleteness(d) && t.kcal > 0){ total += (t.kcal - dayBikeBurn(d)); daysWithData++; }
     }
   }
   return {
@@ -3346,8 +3326,13 @@ function renderTrainingInsights(){
     if(plateauCount>=2&&(sessions>=4||high.length>=2)){loadState='Возможна перегрузка';advice='Есть одновременно признаки высокой нагрузки и отсутствия прогресса в нескольких упражнениях. На неделю убери примерно треть рабочих подходов, не тренируйся до отказа.';}
   }
   var lastText=lastDate?fmtDateHuman(lastDate):'нет записей';
+  var bicepsLoad=round(load['Бицепс']||0);
+  var bicepsState=bicepsLoad<8?'ниже ориентира':(bicepsLoad>16?'выше ориентира':'в диапазоне');
+  var bicepsAdvice=bicepsLoad<8?'Приоритет рук: объём пока ниже общего ориентира. Повышай его постепенно, по 1 рабочему подходу, а не резко.':(bicepsLoad>16?'Объём уже высокий — не добавляй подходы на бицепс на этой неделе.':'Объём бицепса в ориентировочном диапазоне. Сохраняй качество повторов и прогрессируй постепенно.');
   return '<div class="section-title">Автоматический анализ тренировок</div><div class="card">'+
-    '<div class="entry"><div class="name">Оценка нагрузки за 7 дней</div><div class="kcal">'+loadState+'</div></div>'+
+    '<div class="entry"><div class="name">Оценка нагрузки за 7 дней</div><div class="kcal">'+loadState+'</div></div>'+ 
+    '<div class="entry"><div class="name">Бицепс · приоритет</div><div class="kcal">'+bicepsLoad+' / 8–16</div></div>'+
+    '<div style="font-size:11.5px;color:var(--muted);line-height:1.4;margin:0 0 6px;">'+bicepsState+'. '+bicepsAdvice+'</div>'+
     '<div class="entry"><div class="name">Тренировочных дней</div><div class="kcal">'+sessions+' / 7</div></div>'+
     '<div class="entry"><div class="name">Рабочих подходов</div><div class="kcal">'+totalSets+'</div></div>'+
     '<div class="entry"><div class="name">Последняя тренировка</div><div class="kcal">'+lastText+'</div></div>'+
@@ -3396,6 +3381,7 @@ function renderReportTab(content, fab){
 
   var weekPairReportHtml = buildWeekPairHtml(sortedW);
   var reportGoal = activeGoals(todayStr());
+  var backupHealthHtml = '<div class="card" style="margin-bottom:10px;padding:10px 12px;"><div style="font-weight:600;font-size:13px;margin-bottom:4px;">Сохранность данных</div><div style="font-size:12px;color:var(--muted);line-height:1.45;">'+(_storageOk?'Локальное сохранение доступно':'Внимание: локальное сохранение ограничено')+' · '+escapeHTML(_idbStatus||'резервное хранилище')+'. Резервную копию лучше делать регулярно.</div></div>';
   var trainingDays = days.filter(function(d){
     return getWorkouts(d).some(function(w){ return !!w.done || (w.weight != null && w.sets); });
   });
@@ -3498,9 +3484,8 @@ function renderReportTab(content, fab){
       var groupsLine = ['veg','fruit','grain','protein','dairy'].map(function(k){
         return gLabels[k]+': '+(div.groups[k]||0);
       }).join(' · ');
-      return '<div class="section-title">Качество рациона · среднее за 7 дней</div><div class="card">'+
-        '<div class="entry"><div class="name">Разных продуктов за неделю</div><div class="kcal" style="font-weight:700;">'+div.unique+'</div></div>'+
-        '<div class="entry"><div class="name">Уникальных продуктов</div><div class="kcal">'+div.unique+'</div></div>'+
+      return '<div class="section-title">Качество рациона · '+div.daysWithFood+' полных дней из 7</div><div class="card">'+
+        '<div class="entry"><div class="name">Разных продуктов</div><div class="kcal" style="font-weight:700;">'+div.unique+'</div></div>'+
         '<div class="entry"><div class="name">Клетчатка (цель 25–30 г)</div><div class="kcal">'+round(div.avgFiber)+' г</div></div>'+
         '<div class="entry"><div class="name">Овощи / фрукты</div><div class="kcal" style="font-size:13px;">'+round(div.avgVeg)+' / '+round(div.avgFruit)+' г</div></div>'+
         '<div class="entry"><div class="name">Жиры (ориентир ≥40 г)</div><div class="kcal">'+(weeklyMacroAverages(todayStr(),7) ? round(weeklyMacroAverages(todayStr(),7).fat)+' г' : '—')+'</div></div>'+
@@ -3508,6 +3493,7 @@ function renderReportTab(content, fab){
         '<div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4;">'+groupsLine+'</div>'+
       '</div>';
     })()}
+    ${backupHealthHtml}
     <div class="section-title">Данные</div>
     <div class="card">
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Хранилище: ${escapeHTML(_idbStatus)}</div><div style="font-size:11px;color:var(--muted);margin:-3px 0 9px;line-height:1.4;">Данные хранятся на этом устройстве и в этом браузере. Раз в неделю сохраняй JSON-копию отдельно.</div><button class="btn ghost" id="flushDbBtn" style="width:100%;margin-bottom:10px;">Проверить сохранение данных</button>
@@ -3626,8 +3612,11 @@ function collectAllData(){
   var recovery = {};
   Object.keys(_idbCache).forEach(function(k){if(k.indexOf('recovery:')===0)recovery[k.slice(9)]=_idbCache[k];});
   try{if(_storageOk){for(var ri=0;ri<localStorage.length;ri++){var rk=localStorage.key(ri);if(rk&&rk.indexOf('recovery:')===0){var rd=rk.slice(9);try{recovery[rd]=JSON.parse(localStorage.getItem(rk));}catch(e){}}}}}catch(e){}
+  Object.keys(_memStore).forEach(function(k){if(k.indexOf('recovery:')===0&&!recovery[k.slice(9)])recovery[k.slice(9)]=_memStore[k];});
   return {
-    version: 6,
+    version: 9,
+    appVersion: 12,
+    exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,
     weightLog: weightLog,
@@ -3640,8 +3629,12 @@ function collectAllData(){
     workouts: workouts,
     bike: bike,
     dayCompleteness: sGet('dayCompleteness', {}),
+    dayTemplate: dayTemplate,
     recovery: recovery,
-    muscleVolumeTargets: sGet('muscleVolumeTargets', {min:8,max:16})
+    muscleVolumeTargets: sGet('muscleVolumeTargets', {min:8,max:16}),
+    mealPlan: sGet('mealPlan', null),
+    shopChecked: sGet('shopChecked', {}),
+    inventory: sGet('inventory', {})
   };
 }
 
@@ -3655,7 +3648,7 @@ async function exportData(){
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kbju-backup.json';
+    a.download = 'kbju-backup-v12-' + todayStr() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3673,7 +3666,12 @@ async function exportData(){
   }
 }
 
-function csvCell(v){var x=String(v==null?'':v);return '"'+x.replace(/"/g,'""')+'"';}
+function csvCell(v){
+  var x=String(v==null?'':v);
+  // Защита от CSV/Excel formula injection для текстовых полей.
+  if(/^[\s\u0000-\u001f]*[=+@]/.test(x) || (/^-/.test(x) && !/^-\d+(?:[.,]\d+)?$/.test(x))) x="'"+x;
+  return '"'+x.replace(/"/g,'""')+'"';
+}
 function downloadCSV(name,rows){var csv='\ufeff'+rows.map(function(r){return r.map(csvCell).join(';');}).join('\r\n');var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);}
 async function exportCSV(){
   try{
@@ -3694,7 +3692,7 @@ async function exportCSV(){
     rows.push(['Цель объёма мышц','','Подходы на мышцу за неделю',(data.muscleVolumeTargets||{}).min+'–'+(data.muscleVolumeTargets||{}).max,'','','','','','','','']);
     Object.keys(data.goals||{}).sort().forEach(function(k){rows.push(['Цели','',k,data.goals[k],'','','','','','','','']);});
     var csv='\ufeff'+rows.map(function(r){return r.map(csvCell).join(';');}).join('\r\n');
-    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v12-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
     showToast('CSV-файл подготовлен');
   }catch(e){showToast('Ошибка CSV-экспорта');}
 }
@@ -3706,26 +3704,46 @@ function importData(ev){
   reader.onload = async function(){
     try{
       var data = JSON.parse(reader.result);
-      if(!data || typeof data !== 'object' || Array.isArray(data) || (data.version!=null && +data.version>6)) throw new Error('bad backup');
+      if(!data || typeof data !== 'object' || Array.isArray(data) || (data.version!=null && +data.version>9)) throw new Error('bad backup');
       var arrayKeys = ['products','weightLog','measureLog','favorites','exercises'];
       arrayKeys.forEach(function(k){ if(data[k] != null && !Array.isArray(data[k])) throw new Error('bad '+k); });
-      ['diary','workouts','bike','goals','creatineLog','trainingDays','mealPlan','shopChecked','inventory','dayCompleteness','recovery','muscleVolumeTargets'].forEach(function(k){
+      ['diary','workouts','bike','goals','creatineLog','trainingDays','mealPlan','shopChecked','inventory','dayCompleteness','dayTemplate','recovery','muscleVolumeTargets'].forEach(function(k){
         if(data[k] != null && (typeof data[k] !== 'object' || Array.isArray(data[k]) && !['diary','workouts','bike'].includes(k))) throw new Error('bad '+k);
       });
       if(data.recovery != null && (typeof data.recovery !== 'object' || Array.isArray(data.recovery))) throw new Error('bad recovery');
       if(data.muscleVolumeTargets != null && (typeof data.muscleVolumeTargets !== 'object' || Array.isArray(data.muscleVolumeTargets))) throw new Error('bad muscleVolumeTargets');
       if(data.dayCompleteness != null && (typeof data.dayCompleteness !== 'object' || Array.isArray(data.dayCompleteness))) throw new Error('bad dayCompleteness');
+      if(data.dayCompleteness) Object.keys(data.dayCompleteness).forEach(function(d){if(!isValidISODate(d) || typeof data.dayCompleteness[d] !== 'boolean') throw new Error('bad completeness date');});
+      if(data.recovery) Object.keys(data.recovery).forEach(function(d){var r=data.recovery[d];if(!isValidISODate(d)||!r||typeof r!=='object'||Array.isArray(r))throw new Error('bad recovery row');['sleep','energy','soreness'].forEach(function(k){if(r[k]!=null&&r[k]!==''&&!isFinite(+r[k]))throw new Error('bad recovery value');});if(r.sleep!=null&&r.sleep!==''&&(+r.sleep<0||+r.sleep>24))throw new Error('bad sleep');if(r.energy!=null&&r.energy!==''&&(+r.energy<1||+r.energy>5))throw new Error('bad energy');if(r.soreness!=null&&r.soreness!==''&&(+r.soreness<1||+r.soreness>5))throw new Error('bad soreness');});
       ['diary','workouts','bike'].forEach(function(k){
         if(data[k]) Object.keys(data[k]).forEach(function(d){
-          if(!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(data[k][d]) && k!=='bike') throw new Error('bad date data');
+          if(!isValidISODate(d) || !Array.isArray(data[k][d]) && k!=='bike') throw new Error('bad date data');
         });
+      });
+      if(data.recovery) Object.keys(data.recovery).forEach(function(d){if(!isValidISODate(d))throw new Error('bad recovery date');});
+      if(data.dayTemplate && (typeof data.dayTemplate!=='object' || !Array.isArray(data.dayTemplate.entries))) throw new Error('bad dayTemplate');
+      if(data.weightLog) data.weightLog.forEach(function(w){if(!w || !isValidISODate(w.date) || !isFinite(+w.kg) || +w.kg<=0)throw new Error('bad weight');});
+      if(data.diary) Object.keys(data.diary).forEach(function(d){(data.diary[d]||[]).forEach(function(e){
+        if(!e || typeof e!=='object' || Array.isArray(e))throw new Error('bad diary row');
+        ['grams','kcal','protein','fat','carbs','fiber'].forEach(function(k){if(e[k]!=null && (!isFinite(+e[k]) || +e[k]<0))throw new Error('bad diary macro');});
+      });});
+      if(data.workouts) Object.keys(data.workouts).forEach(function(d){data.workouts[d].forEach(function(w){
+        if(!w || typeof w!=='object' || Array.isArray(w))throw new Error('bad workout row');
+        if(w.weight!=null && (!isFinite(+w.weight) || +w.weight<0))throw new Error('bad workout weight');
+        if(w.rirBySet!=null && (!Array.isArray(w.rirBySet) || w.rirBySet.some(function(v){return !Number.isInteger(+v)||+v<0||+v>4;})))throw new Error('bad workout RIR');
+      });});
+      if(data.bike) Object.keys(data.bike).forEach(function(d){var b=data.bike[d];if(!b || !isFinite(+b.km) || +b.km<0)throw new Error('bad bike');});
+      if(data.products) data.products.forEach(function(pr){
+        if(!pr || typeof pr!=='object' || typeof pr.name!=='string')throw new Error('bad product');
+        ['kcal','protein','fat','carbs','fiber'].forEach(function(k){if(pr[k]!=null && (!isFinite(+pr[k]) || +pr[k]<0))throw new Error('bad product macro');});
       });
       // Снимок ключей localStorage позволяет откатить импорт при ошибке записи; новые архивы имеют версию схемы.
       // Импорт старых версий остаётся совместимым, неизвестные будущие версии отклоняются.
       var storageBackup = {};
       if(_storageOk){ for(var si=0;si<localStorage.length;si++){ var sk=localStorage.key(si); storageBackup[sk]=localStorage.getItem(sk); } }
       var oldIdbCache=Object.assign({},_idbCache);
-      var oldState = {products:products,goals:goals,weightLog:weightLog,measureLog:measureLog,creatineLog:creatineLog,favorites:favorites,trainingDays:trainingDays,exercises:exercises,diaryCache:diaryCache,workoutCache:workoutCache,bikeCache:bikeCache};
+      var oldMemStore=Object.assign({},_memStore);
+      var oldState = {products:products,goals:goals,weightLog:weightLog,measureLog:measureLog,creatineLog:creatineLog,favorites:favorites,trainingDays:trainingDays,exercises:exercises,dayTemplate:dayTemplate,diaryCache:diaryCache,workoutCache:workoutCache,bikeCache:bikeCache,hasMealPlan:(typeof mealPlan!=='undefined'),mealPlan:(typeof mealPlan!=='undefined'?mealPlan:null),hasShopChecked:(typeof shopChecked!=='undefined'),shopChecked:(typeof shopChecked!=='undefined'?shopChecked:null),hasInventory:(typeof inventory!=='undefined'),inventory:(typeof inventory!=='undefined'?inventory:null)};
       try{
         // Удаляем старые датированные записи из всех хранилищ, включая IDB-only режим.
         var dynamicKeyMap={};
@@ -3741,10 +3759,11 @@ function importData(ev){
         if(data.favorites) favorites=data.favorites;
         if(data.trainingDays) trainingDays=data.trainingDays;
         if(data.exercises) exercises=data.exercises;
+        if(data.dayTemplate){dayTemplate=data.dayTemplate;sSet('dayTemplate',dayTemplate);}
         [['products',products],['goals',goals],['weightLog',weightLog],['measureLog',measureLog],['creatineLog',creatineLog],['favorites',favorites],['trainingDays',trainingDays],['exercises',exercises]].forEach(function(x){ if(data[x[0]]!=null) sSet(x[0],x[1]); });
         if(data.dayCompleteness){sSet('dayCompleteness',data.dayCompleteness);}
         if(data.muscleVolumeTargets){sSet('muscleVolumeTargets',data.muscleVolumeTargets);}
-        if(data.recovery){Object.keys(data.recovery).forEach(function(d){if(/^\d{4}-\d{2}-\d{2}$/.test(d))sSet('recovery:'+d,data.recovery[d]);});}
+        if(data.recovery){Object.keys(data.recovery).forEach(function(d){if(isValidISODate(d))sSet('recovery:'+d,data.recovery[d]);});}
       if(data.mealPlan){mealPlan=data.mealPlan;sSet('mealPlan',mealPlan);}
         if(data.shopChecked){shopChecked=data.shopChecked;sSet('shopChecked',shopChecked);}
         if(data.inventory){inventory=data.inventory;sSet('inventory',inventory);}
@@ -3752,10 +3771,12 @@ function importData(ev){
         if(data.workouts){ workoutCache={}; Object.keys(data.workouts).forEach(function(d){workoutCache[d]=data.workouts[d];sSet('workout:'+d,data.workouts[d]);}); }
         if(data.bike){ bikeCache={}; Object.keys(data.bike).forEach(function(d){var b=data.bike[d];if(b&&b.km>0){bikeCache[d]={km:+b.km,kcal:bikeKcalFromKm(+b.km)};sSet('bike:'+d,bikeCache[d]);}}); }
       }catch(writeErr){
-        products=oldState.products;goals=oldState.goals;weightLog=oldState.weightLog;measureLog=oldState.measureLog;creatineLog=oldState.creatineLog;favorites=oldState.favorites;trainingDays=oldState.trainingDays;exercises=oldState.exercises;diaryCache=oldState.diaryCache;workoutCache=oldState.workoutCache;bikeCache=oldState.bikeCache;
+        products=oldState.products;goals=oldState.goals;weightLog=oldState.weightLog;measureLog=oldState.measureLog;creatineLog=oldState.creatineLog;favorites=oldState.favorites;trainingDays=oldState.trainingDays;exercises=oldState.exercises;dayTemplate=oldState.dayTemplate;diaryCache=oldState.diaryCache;workoutCache=oldState.workoutCache;bikeCache=oldState.bikeCache;
+        if(oldState.hasMealPlan)mealPlan=oldState.mealPlan;else if(typeof mealPlan!=='undefined')delete window.mealPlan;if(oldState.hasShopChecked)shopChecked=oldState.shopChecked;else if(typeof shopChecked!=='undefined')delete window.shopChecked;if(oldState.hasInventory)inventory=oldState.inventory;else if(typeof inventory!=='undefined')delete window.inventory;
+        _memStore=Object.assign({},oldMemStore);
         if(_storageOk){ try{ Object.keys(localStorage).forEach(function(k){localStorage.removeItem(k);}); Object.keys(storageBackup).forEach(function(k){localStorage.setItem(k,storageBackup[k]);}); }catch(rollbackErr){} }
         Object.keys(_idbCache).forEach(function(k){if(!Object.prototype.hasOwnProperty.call(oldIdbCache,k))sRemove(k);});
-        _idbCache=Object.assign({},oldIdbCache);Object.keys(oldIdbCache).forEach(function(k){persistIDB(k,oldIdbCache[k],false);});
+        _idbCache=Object.assign({},oldIdbCache);_memStore=Object.assign({},oldMemStore);Object.keys(oldIdbCache).forEach(function(k){persistIDB(k,oldIdbCache[k],false);});
         throw writeErr;
       }
       await flushIndexedDB();
@@ -4483,10 +4504,10 @@ function openGoalsForm(){
           <input type="checkbox" id="gWoAuto" ${goals.workoutAuto!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
           <span><b>Авто-упражнения</b><br><span style="color:var(--muted);font-size:12px;">Подставлять план тренировки с учётом прошлых результатов.</span></span>
         </label>
-        <label style="display:flex;align-items:flex-start;gap:10px;margin:10px 0 12px;font-size:13px;line-height:1.4;">
-          <input type="checkbox" id="gSmart" ${goals.smartAdjust?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
-          <span><b>Умная корректировка</b><br><span style="color:var(--muted);font-size:12px;">Учитывать переедание в последующие дни. Выкл. — спокойный режим.</span></span>
-        </label>
+        <div class="card" style="padding:10px 12px;margin:10px 0 12px;font-size:12px;line-height:1.45;color:var(--muted);">
+          <b style="color:var(--ink);">Как приложение считает питание</b><br>
+          Белок — отдельная цель на каждый день. Калории и жиры оцениваются по средней за неделю. Вчерашнее превышение не уменьшает сегодняшнюю норму.
+        </div>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
           <button class="btn primary" id="saveBtn">Сохранить</button>
@@ -4532,7 +4553,7 @@ function openGoalsForm(){
     goals.workoutAuto = !!document.getElementById('gWoAuto').checked;
     goals.maintenanceWeekday = parseInt(document.getElementById('gMaintDay').value, 10);
     if(isNaN(goals.maintenanceWeekday)) goals.maintenanceWeekday = 0;
-    goals.smartAdjust = !!document.getElementById('gSmart').checked;
+    goals.smartAdjust = false;
     goals.trainKcal = goals.kcal;
     goals.trainProtein = goals.protein;
     goals.trainFat = goals.fat;

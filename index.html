@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="КБЖУ v44">
-<meta name="application-version" content="044">
+<meta name="application-version" content="1">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 044</span>
+    <span class="app-build-version">ВЕРСИЯ 1</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -702,7 +702,15 @@ function nextTemplateCode(date){
   return 'A';
 }
 
-function recentTrainingFatigue(){var sets=0,sessions=0,near=0,failures=0;for(var i=1;i<=7;i++)getWorkouts(shiftDate(todayStr(),-i)).forEach(function(w){if(!w||!w.done)return;sessions++;sets+=parseSetArray(w.sets).length;var a=Array.isArray(w.rirBySet)?w.rirBySet:(w.rir!=null?parseSetArray(w.sets).map(function(){return +w.rir;}):[]);a.forEach(function(x){if(x!=null&&+x<=1)near++;if(x!=null&&+x===0)failures++;});});return {high:sessions>=5||sets>=55||near>=5||failures>=3,sessions:sessions,sets:sets,near:near,failures:failures};}
+function recentTrainingFatigue(){
+  var from=shiftDate(todayStr(),-7),all=trainingJournalList().filter(function(s){return s&&s.status==='finished'&&s.date>=from&&s.date<todayStr();});
+  var seen={},sessions=0,sets=0,near=0,failures=0;
+  all.forEach(function(s){var key=s.id||s.date+'-'+(s.started||0);if(seen[key])return;seen[key]=1;sessions++;(s.sets||[]).forEach(function(x){sets++;if(x.rir!=null&&+x.rir<=1)near++;if(x.rir!=null&&+x.rir===0)failures++;});});
+  // Старые данные без журнала учитываем одной сессией на дату, а не по числу упражнений.
+  var journalDates={};all.forEach(function(s){journalDates[s.date]=1;});
+  for(var i=1;i<=7;i++){var d=shiftDate(todayStr(),-i);if(journalDates[d])continue;var ws=getWorkouts(d)||[],daySets=0;ws.forEach(function(w){if(w&&w.done){daySets+=parseSetArray(w.sets||'').length;}});if(daySets){sessions++;sets+=daySets;}}
+  return {high:near>=5||failures>=3,sessions:sessions,sets:sets,near:near,failures:failures};
+}
 
 /** Минимальный шаг веса по инвентарю: блины 1,25 / 2,5 / 3 кг. Гантели: 1 блин 1,25 на гантель; штанга: 1,25 на сторону = 2,5 кг */
 function weightStepFor(name){ return /гантел|молот/i.test(String(name||'')) ? 1.25 : 2.5; }
@@ -750,8 +758,9 @@ function suggestNextSession(last, name){
   }
 
   // При неравных подходах добавляем повтор только там, где его не хватает.
-  var next = sets.map(function(r){return r===minRep ? Math.min(12,r+1) : r;});
-  return {weight:last.weight, sets:next.join('/'), text:'Постепенно подтяни слабые подходы: '+last.weight+' кг · '+next.join('/')+'. Не нужно резко выравнивать все подходы по самому сильному.'};
+  var next = sets.slice(), weakestIndex=sets.indexOf(minRep);
+  next[weakestIndex]=Math.min(12,next[weakestIndex]+1);
+  return {weight:last.weight, sets:next.join('/'), text:'Добавь один повтор в самый слабый подход: '+last.weight+' кг · '+next.join('/')+'. Остальные подходы пока оставь без изменений.'};
 }
 
 function exerciseMatchKey(name){
@@ -2451,7 +2460,7 @@ function workoutFlowCard(){
   var st=workoutFlowState();
   if(!st||st.status==='finished'){
     var done=st&&st.summary,extra='';
-    if(done&&done.details&&done.details.length){extra='<div style="margin-top:8px;">'+done.details.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:11px;color:var(--muted)">'+x.sets+' · '+(x.drop?'падение повторов ≥30%':'без резкого падения')+'</div><div style="font-size:11px;color:var(--green);margin-top:3px;">Следующая цель: '+escapeHTML(x.next||'повтори текущий результат')+'</div></div><div class="kcal">'+(x.volume||0)+' кг·повт.</div></div>';}).join('')+'</div>';}
+    if(done&&done.details&&done.details.length){extra='<div style="margin-top:8px;">'+done.details.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:11px;color:var(--muted)">'+x.sets+' · '+(x.drop?'снижение общего результата ≥30%':'без снижения общего результата')+'</div><div style="font-size:11px;color:var(--green);margin-top:3px;">Следующая цель: '+escapeHTML(x.next||'повтори текущий результат')+'</div></div><div class="kcal">'+(x.volume||0)+' кг·повт.</div></div>';}).join('')+'</div>';}
     return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><b>🏋️ Режим тренировки</b>'+(done?'<div style="font-size:13px;margin:7px 0;">Последняя тренировка: '+done.minutes+' мин · '+done.completed+' из '+done.planned+' подходов · '+done.exercises+' упражнений</div>'+extra:'')+'<div style="font-size:12px;color:var(--muted);margin:5px 0 9px;">Секундомер подходов, запись после каждого подхода и анализ результата.</div><button class="btn primary" id="workoutFlowStart" style="width:100%;">Начать тренировку</button></div>';
   }
   var cur=st.queue[st.index],resting=st.status==='rest',elapsed=resting?Math.max(0,Math.ceil((st.restEnd-Date.now())/1000)):Math.max(0,Math.floor((Date.now()-st.setStarted)/1000));
@@ -2490,7 +2499,8 @@ function workoutFlowFinish(st){
   Object.keys(exercises).forEach(function(id){
     var qs=st.queue.filter(function(q){return String(q.id)===String(id);}),row=(getWorkouts(currentDate)||[]).find(function(w){return String(w.id)===String(id);});if(!row)return;
     var reps=qs.filter(function(q){return q.actualReps!=null;}).map(function(q){return +q.actualReps;}),drop=false;
-    for(var i=1;i<reps.length;i++)if(reps[i-1]>0&&(reps[i-1]-reps[i])/reps[i-1]>=0.30)drop=true;
+    var previous=getLastRealSession(row.name,currentDate),currentTotal=reps.reduce(function(a,b){return a+b;},0),previousTotal=previous?parseTotalReps(previous.sets||''):null;
+    if(previous&&previous.weight!=null&&row.weight!=null&&+previous.weight===+row.weight&&previousTotal!=null&&previousTotal>0&&currentTotal<previousTotal*0.7)drop=true;
     var next=suggestNextSession({name:row.name,weight:row.weight,sets:reps.join('/'),rirBySet:row.rirBySet||[]},row.name);
     details.push({name:row.name,sets:reps.join('/')||'нет записанных повторов',drop:drop,volume:round((+row.weight||0)*reps.reduce(function(a,b){return a+b;},0)),next:next?(next.weight==null?'собственный вес':next.weight+' кг')+' · '+next.sets+' — '+next.text:'повтори текущий результат'});
   });
@@ -2782,8 +2792,11 @@ function saveTrainingJournalSession(st,finished){
   all=all.slice(-300);sSet('trainingSessions',all);
 }
 function migrateLegacyTrainingJournal(){
-  if(sGet('trainingJournalMigratedV42',false))return;
-  var all=trainingJournalList(),seen={};
+  var all=trainingJournalList();
+  // Старые версии ошибочно создавали отдельную legacy-сессию на каждое упражнение. Объединяем их по дате.
+  var merged={},keep=[];all.forEach(function(x){if(x&&x.legacy){var k=x.date||'unknown';if(!merged[k]){merged[k]=Object.assign({},x,{id:'legacy-'+k,sets:[]});keep.push(merged[k]);}merged[k].sets=merged[k].sets.concat(x.sets||[]);merged[k].plannedSets+=0;merged[k].completedSets=merged[k].sets.length;}else keep.push(x);});all=keep;
+  if(sGet('trainingJournalMigratedV42',false)){sSet('trainingSessions',all);return;}
+  var seen={};
   all.forEach(function(s){(s.sets||[]).forEach(function(x){seen[x.key]=1;});});
   Object.keys(workoutCache||{}).forEach(function(date){
     (workoutCache[date]||[]).forEach(function(w){
@@ -2797,7 +2810,8 @@ function migrateLegacyTrainingJournal(){
       rec.completedSets=rec.sets.length;
     });
   });
-  sSet('trainingSessions',all);sSet('trainingJournalMigratedV42',true);
+  var byLegacyDate={},mergedAll=[];all.forEach(function(x){if(x&&x.legacy){var k=x.date||'unknown';if(!byLegacyDate[k]){byLegacyDate[k]=Object.assign({},x,{id:'legacy-'+k,sets:[]});mergedAll.push(byLegacyDate[k]);}byLegacyDate[k].sets=byLegacyDate[k].sets.concat(x.sets||[]);byLegacyDate[k].completedSets=byLegacyDate[k].sets.length;}else mergedAll.push(x);});
+  sSet('trainingSessions',mergedAll);sSet('trainingJournalMigratedV42',true);
 }
 function trainingJournalStats(days){
   var from=shiftDate(todayStr(),-(days-1)),all=trainingJournalList().filter(function(s){return s.date>=from&&s.date<=todayStr()&&(s.sets||[]).length>0;});
@@ -2812,6 +2826,51 @@ function trainingJournalStats(days){
   return {sessions:all.length,sets:sets,volume:Math.round(volume),exercises:Object.keys(ex).length,items:all};
 }
 
+function trainingSessionComparison(session, exerciseName){
+  var all=trainingJournalList().filter(function(x){return x&&x.status==='finished'&&(x.date<session.date||(x.date===session.date&&(+x.started||0)<(+session.started||0)));}).sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))||(+b.started||0)-(+a.started||0);});
+  for(var i=0;i<all.length;i++){var xs=(all[i].sets||[]).filter(function(x){return exerciseMatchKey(x.name)===exerciseMatchKey(exerciseName);});if(xs.length)return xs;}
+  return null;
+}
+function trainingExerciseScore(sets){
+  var reps=(sets||[]).reduce(function(a,x){return a+(+x.reps||0);},0),weights=(sets||[]).map(function(x){return +x.weight||0;}),weight=weights.length?Math.max.apply(null,weights):0;
+  var volume=(sets||[]).reduce(function(a,x){var w=+x.weight||0,r=+x.reps||0;return a+(w>0?w*r:r);},0);
+  return {reps:reps,weight:weight,volume:volume};
+}
+function openTrainingSessionEditor(sessionId){
+  var all=trainingJournalList(),original=all.find(function(x){return String(x.id)===String(sessionId);});if(!original)return;
+  var draft=JSON.parse(JSON.stringify(original)),root=document.getElementById('modalRoot');
+  function groups(){var out=[];(draft.sets||[]).forEach(function(x){var key=String(x.exerciseId||exerciseMatchKey(x.name));var g=out.find(function(z){return z.key===key;});if(!g){g={key:key,id:x.exerciseId||null,name:x.name||'Упражнение',sets:[]};out.push(g);}g.sets.push(x);});return out;}
+  function paint(){var gs=groups(),exerciseOptions=(exercises||[]).map(function(e){return '<option value="'+escapeHTML(e.name||'')+'">'+escapeHTML(e.name||'')+'</option>';}).join('');
+    var body=gs.map(function(g,gi){return '<div class="card" style="padding:10px;margin:8px 0;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b>'+escapeHTML(g.name)+'</b><button type="button" class="btn ghost" data-ed-del-ex="'+gi+'">Удалить упражнение</button></div>'+g.sets.map(function(x,si){var ix=draft.sets.indexOf(x);return '<div style="display:grid;grid-template-columns:36px 1fr 1fr 34px;gap:6px;align-items:center;margin-top:7px;"><span style="font-size:12px;color:var(--muted);">'+(si+1)+' п.</span><input type="number" inputmode="decimal" step="0.5" data-ed-weight="'+ix+'" value="'+(+x.weight||0)+'" placeholder="кг" aria-label="Вес, кг"><input type="number" inputmode="numeric" data-ed-reps="'+ix+'" value="'+(+x.reps||0)+'" placeholder="повторы" aria-label="Повторы"><button type="button" class="del" data-ed-del-set="'+ix+'">×</button></div>';}).join('')+'<button type="button" class="btn ghost" data-ed-add-set="'+gi+'" style="width:100%;margin-top:8px;">＋ Добавить подход</button></div>';}).join('');
+    root.innerHTML='<div class="overlay" id="editTrainingOverlay"><div class="sheet"><h2>Редактировать тренировку</h2><div class="field"><label>Дата</label><input type="date" id="edSessionDate" value="'+escapeHTML(draft.date||'')+'"></div>'+body+'<div class="field"><label>Добавить упражнение</label><select id="edAddExercise"><option value="">Выбрать упражнение</option>'+exerciseOptions+'</select></div><div class="field"><label>Комментарий / причина изменений</label><textarea id="edSessionComment" rows="3" placeholder="Например: вес был записан неверно, пропустил подход…">'+escapeHTML(draft.comment||'')+'</textarea></div><button type="button" class="btn primary" id="edSave" style="width:100%;">Сохранить изменения</button><button type="button" class="btn ghost" id="edDeleteSession" style="width:100%;margin-top:7px;color:var(--red);">Удалить всю тренировку</button><button type="button" class="btn ghost" id="edCancel" style="width:100%;margin-top:7px;">Закрыть</button></div></div>';
+    root.querySelectorAll('[data-ed-weight]').forEach(function(el){el.onchange=function(){draft.sets[+el.dataset.edWeight].weight=Math.max(0,+el.value||0);};});
+    root.querySelectorAll('[data-ed-reps]').forEach(function(el){el.onchange=function(){draft.sets[+el.dataset.edReps].reps=Math.max(0,parseInt(el.value,10)||0);};});
+    root.querySelectorAll('[data-ed-del-set]').forEach(function(el){el.onclick=function(){draft.sets.splice(+el.dataset.edDelSet,1);paint();};});
+    root.querySelectorAll('[data-ed-add-set]').forEach(function(el){el.onclick=function(){var g=gs[+el.dataset.edAddSet],last=g.sets[g.sets.length-1]||{};draft.sets.push({key:uid(),exerciseId:g.id,name:g.name,set:g.sets.length+1,total:g.sets.length+1,reps:+last.reps||0,weight:+last.weight||0});paint();};});
+    root.querySelectorAll('[data-ed-del-ex]').forEach(function(el){el.onclick=function(){var g=gs[+el.dataset.edDelEx];draft.sets=draft.sets.filter(function(x){return String(x.exerciseId||exerciseMatchKey(x.name))!==g.key;});paint();};});
+    var add=document.getElementById('edAddExercise');add.onchange=function(){var name=add.value;if(!name)return;var ex=(exercises||[]).find(function(e){return e.name===name;});draft.sets.push({key:uid(),exerciseId:ex&&ex.id||null,name:name,set:1,total:1,reps:0,weight:0});paint();};
+    document.getElementById('edCancel').onclick=closeModal;
+    document.getElementById('edSave').onclick=function(){var date=document.getElementById('edSessionDate').value;if(!date){showToast('Укажи дату');return;}draft.date=date;draft.comment=document.getElementById('edSessionComment').value.trim();draft.sets=draft.sets.filter(function(x){return +x.reps>0;});var counts={};draft.sets.forEach(function(x){var k=String(x.exerciseId||exerciseMatchKey(x.name));counts[k]=(counts[k]||0)+1;x.total=counts[k];});draft.completedSets=draft.sets.length;draft.plannedSets=draft.sets.length;draft.ended=draft.ended||draft.started;draft.status=draft.sets.length?'finished':'cancelled';var latest=trainingJournalList(),i=latest.findIndex(function(x){return String(x.id)===String(sessionId);});if(i<0)return;latest[i]=draft;sSet('trainingSessions',latest);if(original.date!==draft.date)clearSessionFactsFromPlan(original);else clearSessionFactsFromPlan(original);syncEditedSessionToWorkoutPlan(draft);closeModal();showToast('Тренировка обновлена');render();};
+    document.getElementById('edDeleteSession').onclick=function(){if(!confirm('Удалить тренировку из истории? Это действие нельзя отменить.'))return;var latest=trainingJournalList().filter(function(x){return String(x.id)!==String(sessionId);});sSet('trainingSessions',latest);clearSessionFactsFromPlan(draft);closeModal();showToast('Тренировка удалена');render();};
+    activateModal();
+  }
+  paint();
+}
+function syncEditedSessionToWorkoutPlan(session){
+  var rows=(getWorkouts(session.date)||[]).slice(),by={};(session.sets||[]).forEach(function(x){var k=String(x.exerciseId||exerciseMatchKey(x.name));(by[k]||(by[k]=[])).push(x);});
+  Object.keys(by).forEach(function(k){var xs=by[k],first=xs[0],row=rows.find(function(w){return String(w.id)===String(first.exerciseId)||exerciseMatchKey(w.name)===exerciseMatchKey(first.name);});if(!row){row={id:first.exerciseId||uid(),name:first.name,weight:+first.weight||0,sets:'',done:true};rows.push(row);}row.sets=xs.map(function(x){return x.reps;}).join('/');row.weight=xs.length?xs[0].weight:row.weight;row.done=true;row.inProgress=false;row.completedSets=xs.length;row.plannedSets=xs.length;});saveWorkouts(session.date,rows);
+}
+function clearSessionFactsFromPlan(session){var rows=(getWorkouts(session.date)||[]).slice(),ids={};(session.sets||[]).forEach(function(x){ids[String(x.exerciseId||exerciseMatchKey(x.name))]=1;});rows.forEach(function(w){if(ids[String(w.id||exerciseMatchKey(w.name))]||ids[String(exerciseMatchKey(w.name))]){w.done=false;w.inProgress=false;w.sets='';w.completedSets=0;}});saveWorkouts(session.date,rows);}
+function renderTrainingHistoryBlock(){
+  var all=trainingJournalList().slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))||(+b.started||+b.ended||0)-(+a.started||+a.ended||0);}).slice(0,40);
+  var html='<div class="section-title">История тренировок</div>';
+  if(!all.length)return html+'<div class="empty">История появится после первой тренировки.</div>';
+  return html+all.map(function(session){var sets=session.sets||[],cancelled=session.status==='cancelled',by={};sets.forEach(function(x){var k=String(x.exerciseId||exerciseMatchKey(x.name));(by[k]||(by[k]={name:x.name||'Упражнение',sets:[]})).sets.push(x);});
+    var details='';if(cancelled)details='<div style="font-size:12px;color:var(--muted);margin-top:7px;">Отменена'+(session.cancelReason?' · '+escapeHTML(session.cancelReason):'')+'</div>';
+    else{details=Object.keys(by).map(function(k){var g=by[k],score=trainingExerciseScore(g.sets),prior=trainingSessionComparison(session,g.name),prev=prior?trainingExerciseScore(prior):null;var comparable=prev&&((score.weight===0&&prev.weight===0)||(score.weight>0&&prev.weight>0));var arrow=!prev?'·':(!comparable?'·':(score.volume>prev.volume?'↑':(score.volume<prev.volume?'↓':'→')));var color=arrow==='↑'?'var(--green)':(arrow==='↓'?'var(--red)':'var(--muted)');var summary=g.sets.map(function(x){return (x.weight?x.weight+' кг × ':'')+x.reps;}).join(' / ');var delta=prev&&comparable?' · '+(score.volume-prev.volume>0?'+':'')+(score.volume-prev.volume)+' '+(score.weight?'кг·повт.':'повт.'):' · нет сопоставимого сравнения';return '<div class="entry"><div class="name">'+escapeHTML(g.name)+'<div style="font-size:11px;color:var(--muted);">'+summary+delta+'</div></div><div class="kcal" style="color:'+color+';font-weight:700;">'+arrow+'</div></div>';}).join('');if(session.comment)details+='<div style="font-size:12px;color:var(--muted);margin-top:8px;">Комментарий: '+escapeHTML(session.comment)+'</div>';}
+    return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(session.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':sets.length+' подходов')+'　⌄</span></summary>'+details+(!cancelled?'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Редактировать тренировку</button>':'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Изменить запись</button>')+'</details>';
+  }).join('');
+}
 function renderWorkoutsTab(content,fab){
   migrateLegacyTrainingJournal();
   if(goals.workoutAuto!==false){try{prepareWorkoutsForDate(currentDate);}catch(e){}}
@@ -2837,38 +2896,14 @@ function renderWorkoutsTab(content,fab){
   html+='<button class="btn ghost" id="workoutAddMeasure" style="width:100%;margin:0 0 8px;">＋ Замеры тела</button>';
   html+='<div class="section-title">Кардио</div><div class="card" style="padding:10px 12px;"><div class="entry"><div class="name">🚴 Велотренажёр<div style="font-size:11px;color:var(--muted);">'+(bike?(bike.km+' км · '+round(bike.kcal)+' ккал (оценка)'):'Сегодня не записан')+'</div></div><button class="btn ghost" id="workoutBikeBtn">'+(bike?'Изменить':'Добавить')+'</button></div></div>';
   html+=workoutFlowCard();
+  html+=renderTrainingHistoryBlock();
   html+='<div class="section-title">Фактическая нагрузка · 7 дней</div><div class="card"><div class="entry"><div class="name">Выполнено подходов</div><div class="kcal">'+stats.sets+'</div></div><div class="entry"><div class="name">Тренировок</div><div class="kcal">'+stats.sessions+'</div></div><div class="entry"><div class="name">Упражнений</div><div class="kcal">'+stats.exercises+'</div></div><div class="entry"><div class="name">Тоннаж</div><div class="kcal">'+stats.volume.toLocaleString('ru-RU')+' кг</div></div><div style="font-size:10px;color:var(--muted);margin-top:6px;">Только фактически записанные подходы из журнала, а не запланированные.</div></div>';
   html+=renderTrainingInsights()+workoutHistoryReportCard()+muscleDevelopmentMap()+jointLoadCard()+tenPercentProjectionCard()+exerciseEffectivenessCard()+loadRotationCard()+consistencyCalendarCard()+exerciseHistoryCard();
   html+='<div class="section-title">Объём и корректировка · 4 недели</div><div class="card">'+muscleProgressByGroup()+'</div>'+volumeAdjustmentCard();
   html+=progressPhotoCard();
-  html+='<div class="section-title">История тренировок</div>';
-  all=trainingJournalList().slice().sort(function(a,b){var da=String(a.date||''),db=String(b.date||'');if(da!==db)return db.localeCompare(da);return (+b.started||+b.ended||0)-(+a.started||+a.ended||0);}).slice(0,30);
-  html+=all.length?all.map(function(s,si){
-    var sets=s.sets||[], cancelled=s.status==='cancelled';
-    var byName={};
-    sets.forEach(function(x){var n=x.name||'Упражнение';(byName[n]||(byName[n]=[])).push(x);});
-    var details='';
-    if(cancelled){details='<div style="font-size:12px;color:var(--muted);margin-top:7px;">Отменена'+(s.cancelReason?' · '+escapeHTML(s.cancelReason):'')+'</div>';}
-    else if(!Object.keys(byName).length){details='<div style="font-size:12px;color:var(--muted);margin-top:7px;">Нет записанных упражнений</div>';}
-    else{
-      details=Object.keys(byName).map(function(name){
-        var cur=byName[name],best=cur.reduce(function(m,x){var score=(+x.weight||0)>0?(+x.weight||0)*(+x.reps||0):(+x.reps||0);return Math.max(m,score);},0);
-        var prior=null;
-        for(var pi=si+1;pi<all.length;pi++){
-          if(all[pi].status!=='finished')continue;
-          var ps=(all[pi].sets||[]).filter(function(x){return (x.name||'Упражнение')===name;});
-          if(ps.length){prior=ps.reduce(function(m,x){var score=(+x.weight||0)>0?(+x.weight||0)*(+x.reps||0):(+x.reps||0);return Math.max(m,score);},0);break;}
-        }
-        var arrow=prior==null?'·':(best>prior?'↑':(best<prior?'↓':'→'));
-        var color=prior==null?'var(--muted)':(best>prior?'var(--green)':(best<prior?'var(--red)':'var(--muted)'));
-        var summary=cur.map(function(x){return (x.weight?x.weight+' кг × ':'')+x.reps;}).join(' / ');
-        return '<div class="entry"><div class="name">'+escapeHTML(name)+'<div style="font-size:11px;color:var(--muted);">'+summary+'</div></div><div class="kcal" style="color:'+color+';font-weight:700;">'+arrow+'</div></div>';
-      }).join('');
-    }
-    return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(s.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':'('+(sets.length)+' подходов)')+'　⌄</span></summary>'+details+'</details>';
-  }).join(''):'<div class="empty">История появится после первой тренировки.</div>';
   content.innerHTML=html;fab.innerHTML='';
   bindWorkoutFlow();bindProgressPhotos();bindExerciseHistory();bindMissedWorkout();bindWorkoutSessionClock();
+  content.querySelectorAll('[data-edit-session]').forEach(function(b){b.onclick=function(e){e.preventDefault();e.stopPropagation();openTrainingSessionEditor(b.getAttribute('data-edit-session'));};});
   content.querySelectorAll('[data-training-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-training-date');render();};});
   var bikeBtn=document.getElementById('workoutBikeBtn');if(bikeBtn)bikeBtn.onclick=openBikeForm;
   var measureBtn=document.getElementById('workoutAddMeasure');if(measureBtn)measureBtn.onclick=function(){openMeasureForm(null);};

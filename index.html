@@ -2842,7 +2842,31 @@ function renderWorkoutsTab(content,fab){
   html+='<div class="section-title">Объём и корректировка · 4 недели</div><div class="card">'+muscleProgressByGroup()+'</div>'+volumeAdjustmentCard();
   html+=progressPhotoCard();
   html+='<div class="section-title">История тренировок</div>';
-  html+=all.length?all.map(function(s){var sets=s.sets||[],vol=sets.reduce(function(a,x){return a+(+x.weight||0)*(+x.reps||0);},0),names={};sets.forEach(function(x){names[x.name||'Упражнение']=1;});var prev=all.find(function(p){return p.date<s.date&&p.status==='finished';}),delta=prev?vol-(prev.sets||[]).reduce(function(a,x){return a+(+x.weight||0)*(+x.reps||0);},0):0;var rating=s.status==='cancelled'?'Отменена':(s.status==='finished'?(prev?(delta>0?'↑ Силовые выросли':(delta<0?'↓ Силовые снизились':'→ Без изменений')):'Завершена'):'Не завершена');return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(s.date))+'</b><span style="font-size:12px;color:var(--muted);">'+rating+'　⌄</span></summary><div style="font-size:11px;color:var(--muted);margin:8px 0;">'+sets.length+' подходов · '+Object.keys(names).length+' упражнений · '+Math.round(vol)+' кг тоннажа'+(s.cancelReason?' · Причина: '+escapeHTML(s.cancelReason):'')+'</div>'+sets.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+' · подход '+x.set+'</div><div class="kcal">'+(x.weight?x.weight+' кг × ':'')+x.reps+'</div></div>';}).join('')+'</details>';}).join(''):'<div class="empty">История появится после первого записанного подхода.</div>';
+  all=trainingJournalList().slice().sort(function(a,b){var da=String(a.date||''),db=String(b.date||'');if(da!==db)return db.localeCompare(da);return (+b.started||+b.ended||0)-(+a.started||+a.ended||0);}).slice(0,30);
+  html+=all.length?all.map(function(s,si){
+    var sets=s.sets||[], cancelled=s.status==='cancelled';
+    var byName={};
+    sets.forEach(function(x){var n=x.name||'Упражнение';(byName[n]||(byName[n]=[])).push(x);});
+    var details='';
+    if(cancelled){details='<div style="font-size:12px;color:var(--muted);margin-top:7px;">Отменена'+(s.cancelReason?' · '+escapeHTML(s.cancelReason):'')+'</div>';}
+    else if(!Object.keys(byName).length){details='<div style="font-size:12px;color:var(--muted);margin-top:7px;">Нет записанных упражнений</div>';}
+    else{
+      details=Object.keys(byName).map(function(name){
+        var cur=byName[name],best=cur.reduce(function(m,x){var score=(+x.weight||0)>0?(+x.weight||0)*(+x.reps||0):(+x.reps||0);return Math.max(m,score);},0);
+        var prior=null;
+        for(var pi=si+1;pi<all.length;pi++){
+          if(all[pi].status!=='finished')continue;
+          var ps=(all[pi].sets||[]).filter(function(x){return (x.name||'Упражнение')===name;});
+          if(ps.length){prior=ps.reduce(function(m,x){var score=(+x.weight||0)>0?(+x.weight||0)*(+x.reps||0):(+x.reps||0);return Math.max(m,score);},0);break;}
+        }
+        var arrow=prior==null?'·':(best>prior?'↑':(best<prior?'↓':'→'));
+        var color=prior==null?'var(--muted)':(best>prior?'var(--green)':(best<prior?'var(--red)':'var(--muted)'));
+        var summary=cur.map(function(x){return (x.weight?x.weight+' кг × ':'')+x.reps;}).join(' / ');
+        return '<div class="entry"><div class="name">'+escapeHTML(name)+'<div style="font-size:11px;color:var(--muted);">'+summary+'</div></div><div class="kcal" style="color:'+color+';font-weight:700;">'+arrow+'</div></div>';
+      }).join('');
+    }
+    return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(s.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':'('+(sets.length)+' подходов)')+'　⌄</span></summary>'+details+'</details>';
+  }).join(''):'<div class="empty">История появится после первой тренировки.</div>';
   content.innerHTML=html;fab.innerHTML='';
   bindWorkoutFlow();bindProgressPhotos();bindExerciseHistory();bindMissedWorkout();bindWorkoutSessionClock();
   content.querySelectorAll('[data-training-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-training-date');render();};});
@@ -4014,7 +4038,7 @@ function renderReportTab(content, fab){
 
     ${plateauHtml}
     <div class="section-title">Календарь питания · 28 дней</div>
-    <div class="card" style="padding:10px 12px;"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;text-align:center;font-size:10px;color:var(--muted);margin-bottom:6px;">Пн Вт Ср Чт Пт Сб Вс</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">'+(function(){var out='';for(var ci=27;ci>=0;ci--){var cd=shiftDate(todayStr(),-ci),ce=getDiary(cd),ct=computeTotals(ce),cg=activeGoals(cd),ok=ce.length>0&&ct.kcal<=cg.kcal*1.1;var wd=(weekdayOf(cd)+6)%7;if(ci===27){for(var z=0;z<wd;z++)out+='<span></span>'; }out+='<button type="button" data-cal-date="'+cd+'" title="'+fmtDateHuman(cd)+' · '+(ce.length?round(ct.kcal)+' ккал':'нет записей')+'" style="aspect-ratio:1;border:0;border-radius:8px;background:'+(ce.length?(ok?'var(--green-dim)':'var(--red-dim)'):'var(--bg)')+';color:'+(ce.length?(ok?'var(--green)':'var(--red)'):'var(--muted)')+';font-size:11px;font-weight:600;">'+Number(cd.slice(8))+'</button>';}return out;})()+'</div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:10px;color:var(--muted);"><span>🟢 есть записи, в пределах цели</span><span>🔴 выше цели</span><span>Серый — нет записей</span></div></div>
+    <div class="card" style="padding:10px 12px;"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;text-align:center;font-size:10px;color:var(--muted);margin-bottom:6px;">Пн Вт Ср Чт Пт Сб Вс</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">${(function(){var out='';for(var ci=27;ci>=0;ci--){var cd=shiftDate(todayStr(),-ci),ce=getDiary(cd),ct=computeTotals(ce),cg=activeGoals(cd),ok=ce.length>0&&ct.kcal<=cg.kcal*1.1;var wd=(weekdayOf(cd)+6)%7;if(ci===27){for(var z=0;z<wd;z++)out+='<span></span>'; }out+='<button type="button" data-cal-date="'+cd+'" title="'+fmtDateHuman(cd)+' · '+(ce.length?round(ct.kcal)+' ккал':'нет записей')+'" style="aspect-ratio:1;border:0;border-radius:8px;background:'+(ce.length?(ok?'var(--green-dim)':'var(--red-dim)'):'var(--bg)')+';color:'+(ce.length?(ok?'var(--green)':'var(--red)'):'var(--muted)')+';font-size:11px;font-weight:600;">'+Number(cd.slice(8))+'</button>';}return out;})()}</div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:10px;color:var(--muted);"><span>🟢 есть записи, в пределах цели</span><span>🔴 выше цели</span><span>Серый — нет записей</span></div></div>
     <div class="section-title">По дням</div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Нажми на день → дневник</div>
     <div class="card">${rows.map(function(r){

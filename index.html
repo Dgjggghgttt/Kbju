@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v40</title>
+<title>КБЖУ — дневник v41</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v40">
-<meta name="application-version" content="40">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v41">
+<meta name="application-version" content="41">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 40</span>
+    <span class="app-build-version">ВЕРСИЯ 41</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -1785,7 +1785,7 @@ function renderDiaryTab(content, fab){
       var rirText=Array.isArray(w.rirBySet)&&w.rirBySet.length?' · RIR '+w.rirBySet.join('/'):(w.rir!=null?' · RIR '+w.rir:'');
       var quality=workoutSetQuality(w); var qualityText=quality&&quality.warning?'<div style="font-size:11px;color:var(--muted);margin-top:3px;">'+(quality.drops.length?'Падение повторов ≥30%: '+quality.drops.map(function(x){return x.from+'→'+x.to;}).join(', '):'')+(quality.failures?(quality.drops.length?' · ':'')+'Отказных: '+quality.failures:'')+'</div>':'';
       var fact = (w.weight != null && w.sets ? (w.weight+' кг · '+w.sets+rirText) : (w.done ? (w.weight != null ? w.weight+' кг'+rirText : '') : ''));
-      var status = w.done ? '✓ сделано' : (w.planned ? 'цель' : '');
+      var status = w.done ? '✓ сделано' : (w.inProgress ? 'в процессе' : (w.planned ? 'цель' : ''));
       var advice = escapeHTML(w.advice || '');
       var fb = escapeHTML(w.feedback || '');
       return `<div class="entry" data-edit-workout="${w.id}" style="flex-wrap:wrap;">
@@ -2253,7 +2253,7 @@ function exercisePrimaryMuscle(n){
   return 'Плечи';
 }
 function exerciseReplacementOptions(m){
-  var all=EXERCISE_LIBRARY.filter(function(x){return x.group===m||x.muscle.toLowerCase().indexOf(String(m).toLowerCase())>=0;});
+  var aliases={'Бицепс':['Бицепс','Брахиалис'],'Трицепс':['Трицепс'],'Грудь':['Грудь'],'Спина':['Спина','Широчайшие мышцы спины'],'Плечи':['Плечи','Средняя дельта']};var keys=aliases[m]||[m];var all=EXERCISE_LIBRARY.filter(function(x){var g=String(x.group||'');var mu=String(x.muscle||'');return keys.indexOf(g)>=0||keys.some(function(k){return mu.toLowerCase().indexOf(k.toLowerCase())>=0;});});
   return all.map(function(x){return x.name;});
 }
 
@@ -2276,8 +2276,9 @@ function replaceWorkoutExercise(id){
       var liveIdx=latest.findIndex(function(w){return String(w.id)===String(id);});
       if(liveIdx<0){showToast('Упражнение не найдено — обнови список');closeModal();render();return;}
       var oldName=latest[liveIdx].name;
-      latest[liveIdx]=Object.assign({},latest[liveIdx],{name:name,weight:null,sets:'',done:false,planned:true,targetWeight:null,targetSets:latest[liveIdx].targetSets||latest[liveIdx].targetSets,advice:'Аналогичная замена. Начни с лёгкого веса и подбери нагрузку заново.'});
+      latest[liveIdx]=Object.assign({},latest[liveIdx],{name:name,weight:null,sets:'',done:false,planned:true,targetWeight:null,targetSets:latest[liveIdx].targetSets||'3x10',advice:'Аналогичная замена. Начни с лёгкого веса и подбери нагрузку заново.'});
       saveWorkouts(date,latest);
+      var flow=sGet(workoutFlowKey(date),null);if(flow&&flow.status!=='finished'&&Array.isArray(flow.queue)){flow.queue.forEach(function(q){if(String(q.id)===String(id)){q.name=name;q.actualReps=null;}});flow.completed=flow.queue.filter(function(q){return q.actualReps!=null;}).length;sSet(workoutFlowKey(date),flow);}
       var check=(getWorkouts(date)||[]).find(function(w){return String(w.id)===String(id);});
       if(!check||check.name!==name){showToast('Не удалось сохранить замену');return;}
       closeModal();
@@ -2285,7 +2286,6 @@ function replaceWorkoutExercise(id){
       showToast(oldName+' → '+name);
     };
     btn.addEventListener('click',applyChoice,false);
-    btn.addEventListener('touchend',function(ev){if(ev.cancelable)ev.preventDefault();applyChoice(ev);},{passive:false});
   });
   var browse=document.getElementById('browseExerciseCatalog');if(browse)browse.onclick=function(){openExerciseCatalog();};
   var cancel=document.getElementById('cancelReplace');if(cancel)cancel.onclick=closeModal;
@@ -2371,7 +2371,7 @@ function volumeAdjustmentCard(){
 function muscleDevelopmentMap(){
   var load=weeklyMuscleLoad(7),names=['Бицепс','Трицепс','Грудь','Широчайшие','Верх спины','Плечи','Ноги'],out='<div class="section-title">Карта мышечной нагрузки</div><div class="card" style="padding:11px 13px;">';
   names.forEach(function(n){var v=round(load[n]||0),pct=Math.min(100,v/8*100),status=v<4?'Мало':(v<8?'Ниже ориентира':(v<=16?'Достаточно':'Высокий объём'));out+='<div style="margin:7px 0;"><div style="display:flex;justify-content:space-between;font-size:12px;gap:8px;"><b>'+n+'</b><span>'+v+' эфф. подходов · '+status+'</span></div><div class="bar" style="height:6px;margin-top:4px;"><i style="width:'+pct+'%;background:'+(v<4?'var(--amber)':(v>16?'var(--red)':'var(--green)'))+'"></i></div></div>';});
-  return out+'<div style="font-size:10px;color:var(--muted);margin-top:7px;">Последние 7 полных дней · ориентир 8 эффективных подходов. Это оценка нагрузки, не измерение роста мышц.</div></div>';
+  return out+'<div style="font-size:10px;color:var(--muted);margin-top:7px;">Последние 7 дней, включая сегодня и уже выполненные подходы · ориентир 8 эффективных подходов. Это оценка нагрузки, не измерение роста мышц.</div></div>';
 }
 function workoutRestSeconds(name){var n=String(name||'').toLowerCase();if(/подтяг|жим|присед|станов|тяга|выпад/.test(n))return 150;if(/сгиб|молот|развод|подъ[её]м|махи|разгиб/.test(n))return 75;return 90;}
 
@@ -2454,13 +2454,94 @@ var _workoutFlowInterval=null, _workoutWakeLock=null;
 function workoutFlowKey(date){return 'workoutFlow:'+date;}
 function workoutFlowState(){return sGet(workoutFlowKey(currentDate),null);}
 function workoutFlowQueue(rows){var q=[];(rows||[]).forEach(function(w){var a=parseSetArray(w.targetSets||w.sets||'3x10');var count=a.length||3;for(var i=0;i<count;i++)q.push({id:w.id,name:w.name||'Упражнение',set:i+1,total:count,rest:workoutRestSeconds(w.name),targetReps:a[i]||null});});return q;}
-function workoutFlowSpeak(message){try{if(window.speechSynthesis&&window.SpeechSynthesisUtterance){window.speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(message);u.lang='ru-RU';u.rate=1;window.speechSynthesis.speak(u);}}catch(e){}}
+var _workoutSpeechQueue=[],_workoutSpeechBusy=false;
+function workoutFlowSpeak(message){
+  try{
+    if(!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;
+    _workoutSpeechQueue.push(String(message||''));
+    if(_workoutSpeechBusy)return;
+    var speakNext=function(){
+      if(!_workoutSpeechQueue.length){_workoutSpeechBusy=false;return;}
+      _workoutSpeechBusy=true;
+      var msg=_workoutSpeechQueue.shift(),u=new SpeechSynthesisUtterance(msg);
+      u.lang='ru-RU';u.rate=0.95;u.onend=function(){_workoutSpeechBusy=false;speakNext();};u.onerror=function(){_workoutSpeechBusy=false;speakNext();};
+      window.speechSynthesis.speak(u);
+    };
+    if(window.speechSynthesis.paused)window.speechSynthesis.resume();
+    speakNext();
+  }catch(e){_workoutSpeechBusy=false;}
+}
 function workoutFlowWake(on){if(on){try{if(navigator.wakeLock&&navigator.wakeLock.request)navigator.wakeLock.request('screen').then(function(x){_workoutWakeLock=x;}).catch(function(){});}catch(e){}}else{try{if(_workoutWakeLock){_workoutWakeLock.release();_workoutWakeLock=null;}}catch(e){}}}
-function workoutFlowCard(){var st=workoutFlowState();if(!st||st.status==='finished'){var done=st&&st.summary;return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><b>🏋️ Режим тренировки</b>'+(done?'<div style="font-size:13px;margin:7px 0;">Последняя тренировка: '+done.minutes+' мин · '+done.completed+' подходов · '+done.exercises+' упражнений</div>':'')+'<div style="font-size:12px;color:var(--muted);margin:5px 0 9px;">Секундомер подходов, умный отдых и запись фактических повторений.</div><button class="btn primary" id="workoutFlowStart" style="width:100%;">Начать тренировку</button></div>';}
-var cur=st.queue[st.index],resting=st.status==='rest',elapsed=resting?Math.max(0,Math.ceil((st.restEnd-Date.now())/1000)):Math.max(0,Math.floor((Date.now()-st.setStarted)/1000));var clock=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><div style="display:flex;justify-content:space-between;align-items:center"><b>🏋️ Тренировка идёт</b><span style="font-size:11px;color:var(--muted)">'+(st.index+1)+' / '+st.queue.length+'</span></div><div style="font-weight:700;margin-top:8px">'+escapeHTML(cur.name)+' · подход '+cur.set+'/'+cur.total+'</div><div id="workoutFlowClock" style="font:700 30px ui-monospace,monospace;text-align:center;margin:8px 0">'+clock+'</div><div id="workoutFlowHint" style="font-size:12px;text-align:center;color:var(--muted);margin-bottom:8px">'+(resting?(elapsed===0?'Пауза закончилась':'Отдых · '+(st.restSeconds||cur.rest)+' сек'):'Выполняй подход')+'</div>'+(resting?'':'<div class="field"><label>Повторения в подходе</label><input id="workoutFlowReps" type="number" inputmode="numeric" min="0" placeholder="Фактические повторы" value=""></div>')+'<button class="btn primary" id="workoutFlowAction" style="width:100%;">'+(resting?(Date.now()>=st.restEnd?'Начать следующий подход':'Пропустить паузу'):'Подход выполнен · записать')+'</button><button class="btn ghost" id="workoutFlowFinish" style="width:100%;margin-top:6px">Завершить тренировку</button></div>';}
-function workoutFlowSaveReps(st){var rows=getWorkouts(currentDate),map={};st.queue.forEach(function(q){if(!map[q.id])map[q.id]=[];map[q.id].push(q);});Object.keys(map).forEach(function(id){var row=rows.find(function(x){return String(x.id)===String(id);});if(!row)return;var vals=map[id].map(function(q){return q.actualReps==null?'':q.actualReps;});if(vals.some(function(v){return v!=='';})){row.sets=vals.join('/');row.done=true;}});saveWorkouts(currentDate,rows);}
-function workoutFlowFinish(st){st.status='finished';st.ended=Date.now();var minutes=Math.max(1,Math.round((st.ended-st.started)/60000));var completed=st.queue.filter(function(q){return q.actualReps!=null;}).length;var exercises={};st.queue.forEach(function(q){exercises[q.id]=true;});st.summary={minutes:minutes,completed:completed,exercises:Object.keys(exercises).length};workoutFlowSaveReps(st);sSet(workoutFlowKey(currentDate),st);workoutFlowWake(false);if(_workoutFlowInterval)clearInterval(_workoutFlowInterval);showToast('Тренировка завершена · '+minutes+' мин · '+completed+' подходов');workoutFlowSpeak('Тренировка завершена. '+minutes+' минут. '+completed+' подходов.');render();}
-function bindWorkoutFlow(){var start=document.getElementById('workoutFlowStart');if(start)start.onclick=function(){var q=workoutFlowQueue(getWorkouts(currentDate));if(!q.length){showToast('Сначала добавь упражнения');return;}var st={status:'set',started:Date.now(),setStarted:Date.now(),index:0,queue:q,completed:0,restAdjust:{}};sSet(workoutFlowKey(currentDate),st);workoutFlowWake(true);workoutFlowSpeak('Тренировка началась. '+q[0].name);render();};var action=document.getElementById('workoutFlowAction');if(action)action.onclick=function(){var st=workoutFlowState();if(!st)return;if(st.status==='set'){var inp=document.getElementById('workoutFlowReps'),reps=inp&&inp.value!==''?Math.max(0,parseInt(inp.value,10)):null,c=st.queue[st.index];c.actualReps=reps;st.completed++;var prev=st.queue.slice(0,st.index).filter(function(q){return q.id===c.id&&q.actualReps!=null;}).slice(-1)[0];var rest=c.rest;if(prev&&prev.actualReps>0&&reps!=null&&reps<prev.actualReps*.8)rest=Math.min(240,rest+30);else if(prev&&prev.actualReps>0&&reps!=null&&reps>=prev.actualReps)rest=Math.max(60,rest-10);st.restSeconds=rest;if(st.index===st.queue.length-1){workoutFlowFinish(st);return;}st.status='rest';st.restEnd=Date.now()+rest*1000;sSet(workoutFlowKey(currentDate),st);workoutFlowSpeak('Отдых '+Math.round(rest/60)+' минут');render();}else if(st.status==='rest'){st.index++;st.status='set';st.setStarted=Date.now();delete st.restEnd;sSet(workoutFlowKey(currentDate),st);workoutFlowSpeak(st.queue[st.index].name+', подход '+st.queue[st.index].set);render();}};var finish=document.getElementById('workoutFlowFinish');if(finish)finish.onclick=function(){var st=workoutFlowState();if(st)workoutFlowFinish(st);};if(_workoutFlowInterval)clearInterval(_workoutFlowInterval);if(workoutFlowState()&&workoutFlowState().status!=='finished')_workoutFlowInterval=setInterval(function(){var st=workoutFlowState();if(!st)return;var c=document.getElementById('workoutFlowClock'),h=document.getElementById('workoutFlowHint'),b=document.getElementById('workoutFlowAction');if(!c)return;var sec=st.status==='rest'?Math.max(0,Math.ceil((st.restEnd-Date.now())/1000)):Math.max(0,Math.floor((Date.now()-st.setStarted)/1000));c.textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');if(st.status==='rest'){if(h)h.textContent=sec===0?'Пауза закончилась · готов к следующему подходу':'Умный отдых · '+Math.ceil(sec/60)+' мин';if(b)b.textContent=sec===0?'Начать следующий подход':'Пропустить паузу';if(sec===0&&st._notified!==true){st._notified=true;sSet(workoutFlowKey(currentDate),st);if(navigator.vibrate)navigator.vibrate([180,100,180]);workoutFlowSpeak('Отдых закончен. Можно начинать следующий подход.');}}},500);}
+function workoutFlowCard(){
+  var st=workoutFlowState();
+  if(!st||st.status==='finished'){
+    var done=st&&st.summary,extra='';
+    if(done&&done.details&&done.details.length){extra='<div style="margin-top:8px;">'+done.details.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:11px;color:var(--muted)">'+x.sets+' · '+(x.drop?'падение повторов ≥30%':'без резкого падения')+'</div><div style="font-size:11px;color:var(--green);margin-top:3px;">Следующая цель: '+escapeHTML(x.next||'повтори текущий результат')+'</div></div><div class="kcal">'+(x.volume||0)+' кг·повт.</div></div>';}).join('')+'</div>';}
+    return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><b>🏋️ Режим тренировки</b>'+(done?'<div style="font-size:13px;margin:7px 0;">Последняя тренировка: '+done.minutes+' мин · '+done.completed+' из '+done.planned+' подходов · '+done.exercises+' упражнений</div>'+extra:'')+'<div style="font-size:12px;color:var(--muted);margin:5px 0 9px;">Секундомер подходов, запись после каждого подхода и анализ результата.</div><button class="btn primary" id="workoutFlowStart" style="width:100%;">Начать тренировку</button></div>';
+  }
+  var cur=st.queue[st.index],resting=st.status==='rest',elapsed=resting?Math.max(0,Math.ceil((st.restEnd-Date.now())/1000)):Math.max(0,Math.floor((Date.now()-st.setStarted)/1000));
+  var clock=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
+  return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><div style="display:flex;justify-content:space-between;align-items:center"><b>🏋️ Тренировка идёт</b><span style="font-size:11px;color:var(--muted)">'+(st.index+1)+' / '+st.queue.length+'</span></div><div style="font-weight:700;margin-top:8px">'+escapeHTML(cur.name)+' · подход '+cur.set+'/'+cur.total+'</div><div id="workoutFlowClock" style="font:700 30px ui-monospace,monospace;text-align:center;margin:8px 0">'+clock+'</div><div id="workoutFlowHint" style="font-size:12px;text-align:center;color:var(--muted);margin-bottom:8px">'+(resting?(elapsed===0?'Пауза закончилась':'Отдых · '+(st.restSeconds||cur.rest)+' сек'):'Выполняй подход')+'</div>'+(resting?'':'<div class="field"><label>Повторения в подходе</label><input id="workoutFlowReps" type="number" inputmode="numeric" min="1" placeholder="Фактические повторы" value=""></div>')+'<button class="btn primary" id="workoutFlowAction" style="width:100%;">'+(resting?(Date.now()>=st.restEnd?'Начать следующий подход':'Пропустить паузу'):'Подход выполнен · записать')+'</button><button class="btn ghost" id="workoutFlowFinish" style="width:100%;margin-top:6px">Завершить тренировку</button></div>';
+}
+function workoutFlowSaveReps(st){
+  var rows=getWorkouts(currentDate)||[],map={};
+  st.queue.forEach(function(q){if(!map[q.id])map[q.id]=[];map[q.id].push(q);});
+  Object.keys(map).forEach(function(id){
+    var row=rows.find(function(x){return String(x.id)===String(id);});if(!row)return;
+    var qs=map[id],vals=qs.filter(function(q){return q.actualReps!=null;}).map(function(q){return String(q.actualReps);});
+    if(vals.length){row.sets=vals.join('/');row.inProgress=vals.length<qs.length;row.done=vals.length===qs.length;row.completedSets=vals.length;row.plannedSets=qs.length;}
+  });
+  saveWorkouts(currentDate,rows);
+}
+function workoutFlowFinish(st){
+  if(!st||st.status==='finished')return;
+  workoutFlowSaveReps(st);st.status='finished';st.ended=Date.now();
+  var minutes=Math.max(1,Math.round((st.ended-st.started)/60000)),completed=st.queue.filter(function(q){return q.actualReps!=null;}).length,exercises={},details=[];
+  st.queue.forEach(function(q){exercises[q.id]=true;});
+  Object.keys(exercises).forEach(function(id){
+    var qs=st.queue.filter(function(q){return String(q.id)===String(id);}),row=(getWorkouts(currentDate)||[]).find(function(w){return String(w.id)===String(id);});if(!row)return;
+    var reps=qs.filter(function(q){return q.actualReps!=null;}).map(function(q){return +q.actualReps;}),drop=false;
+    for(var i=1;i<reps.length;i++)if(reps[i-1]>0&&(reps[i-1]-reps[i])/reps[i-1]>=0.30)drop=true;
+    var next=suggestNextSession({name:row.name,weight:row.weight,sets:reps.join('/'),rirBySet:row.rirBySet||[]},row.name);
+    details.push({name:row.name,sets:reps.join('/')||'нет записанных повторов',drop:drop,volume:round((+row.weight||0)*reps.reduce(function(a,b){return a+b;},0)),next:next?(next.weight==null?'собственный вес':next.weight+' кг')+' · '+next.sets+' — '+next.text:'повтори текущий результат'});
+  });
+  st.summary={minutes:minutes,completed:completed,planned:st.queue.length,exercises:Object.keys(exercises).length,details:details};
+  sSet(workoutFlowKey(currentDate),st);workoutFlowWake(false);if(_workoutFlowInterval)clearInterval(_workoutFlowInterval);
+  showToast('Тренировка завершена · '+minutes+' мин · '+completed+'/'+st.queue.length+' подходов');
+  workoutFlowSpeak('Тренировка завершена. '+minutes+' минут. Выполнено '+completed+' из '+st.queue.length+' подходов.');render();
+}
+function bindWorkoutFlow(){
+  var start=document.getElementById('workoutFlowStart');
+  if(start)start.onclick=function(){var q=workoutFlowQueue(getWorkouts(currentDate));if(!q.length){showToast('Сначала добавь упражнения');return;}var st={status:'set',started:Date.now(),setStarted:Date.now(),index:0,queue:q,completed:0,restAdjust:{}};sSet(workoutFlowKey(currentDate),st);workoutFlowWake(true);workoutFlowSpeak('Тренировка началась. '+q[0].name);render();};
+  var action=document.getElementById('workoutFlowAction');
+  if(action)action.onclick=function(){
+    var st=workoutFlowState();if(!st)return;
+    if(st.status==='set'){
+      var inp=document.getElementById('workoutFlowReps'),reps=inp&&inp.value!==''?Math.max(0,parseInt(inp.value,10)):null;
+      if(reps==null||!isFinite(reps)||reps<1){showToast('Введи фактическое число повторений — подход не будет потерян');return;}
+      var c=st.queue[st.index];c.actualReps=reps;st.completed++;workoutFlowSaveReps(st);
+      var prev=st.queue.slice(0,st.index).filter(function(q){return q.id===c.id&&q.actualReps!=null;}).slice(-1)[0],rest=c.rest;
+      if(prev&&prev.actualReps>0&&reps<prev.actualReps*.8)rest=Math.min(240,rest+30);else if(prev&&prev.actualReps>0&&reps>=prev.actualReps)rest=Math.max(60,rest-10);
+      st.restSeconds=rest;
+      if(st.index===st.queue.length-1){workoutFlowFinish(st);return;}
+      st.status='rest';st.restEnd=Date.now()+rest*1000;st._notified=false;sSet(workoutFlowKey(currentDate),st);workoutFlowSpeak('Отдых '+Math.round(rest/60)+' минут');render();
+    }else if(st.status==='rest'){
+      st.index++;st.status='set';st.setStarted=Date.now();delete st.restEnd;sSet(workoutFlowKey(currentDate),st);workoutFlowSpeak(st.queue[st.index].name+', подход '+st.queue[st.index].set);render();
+    }
+  };
+  var finish=document.getElementById('workoutFlowFinish');if(finish)finish.onclick=function(){var st=workoutFlowState();if(st)workoutFlowFinish(st);};
+  if(_workoutFlowInterval)clearInterval(_workoutFlowInterval);
+  if(workoutFlowState()&&workoutFlowState().status!=='finished')_workoutFlowInterval=setInterval(function(){
+    var st=workoutFlowState();if(!st)return;var c=document.getElementById('workoutFlowClock'),h=document.getElementById('workoutFlowHint'),b=document.getElementById('workoutFlowAction');if(!c)return;
+    var sec=st.status==='rest'?Math.max(0,Math.ceil((st.restEnd-Date.now())/1000)):Math.max(0,Math.floor((Date.now()-st.setStarted)/1000));
+    c.textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');
+    if(st.status==='rest'){
+      if(h)h.textContent=sec===0?'Пауза закончилась · готов к следующему подходу':'Отдых · '+Math.ceil(sec/60)+' мин';
+      if(b)b.textContent=sec===0?'Начать следующий подход':'Пропустить паузу';
+      if(sec===0&&st._notified!==true){st._notified=true;sSet(workoutFlowKey(currentDate),st);if(navigator.vibrate)navigator.vibrate([180,100,180]);workoutFlowSpeak('Отдых закончен. Можно начинать следующий подход.');}
+    }
+  },500);
+}
 function workoutSessionCard(){
   var key='workoutSession:'+currentDate,st=sGet(key,null),elapsed=st&&st.started?Math.max(0,Math.round(((st.ended||Date.now())-st.started)/60000)):0;
   return '<div class="card" id="sessionClockCard" style="padding:10px 12px;margin-top:8px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div><b style="font-size:13px;">⏱ Длительность тренировки</b><div style="font-size:12px;color:var(--muted);margin-top:3px;">'+(st&&st.started?(st.ended?'Завершена':'Идёт')+' · '+elapsed+' мин':'Таймер ещё не запущен')+'</div></div><button class="btn '+(st&&st.started&&!st.ended?'primary':'ghost')+'" id="sessionClockBtn" style="white-space:nowrap;">'+(st&&st.started&&!st.ended?'Завершить':(st&&st.ended?'Начать заново':'Старт'))+'</button></div></div>';
@@ -3689,8 +3770,8 @@ function exercisePlateaus(daysBack){
 }
 
 function weeklyMuscleLoad(days){
-  var out={},start=shiftDate(todayStr(),-days);
-  for(var i=0;i<days;i++){var d=shiftDate(start,i);getWorkouts(d).forEach(function(w){if(!w.done)return;var x=effectiveMuscleSets(w);Object.keys(x).forEach(function(k){out[k]=(out[k]||0)+x[k];});});}
+  var out={},n=Math.max(1,days||7),start=shiftDate(todayStr(),-(n-1));
+  for(var i=0;i<n;i++){var d=shiftDate(start,i);getWorkouts(d).forEach(function(w){if(!w.done&&!w.inProgress&&!(d===todayStr()&&w.sets))return;var x=effectiveMuscleSets(w);Object.keys(x).forEach(function(k){out[k]=(out[k]||0)+x[k];});});}
   return out;
 }
 function muscleRecoverySnapshot(){var groups=['Бицепс','Грудь','Широчайшие','Верх спины','Трицепс','Плечи'],load=weeklyMuscleLoad(7);return groups.map(function(m){var ago=null;for(var i=0;i<21;i++){var d=shiftDate(todayStr(),-i);if(getWorkouts(d).some(function(w){return w.done&&(effectiveMuscleSets(w)[m]||0)>0;})){ago=i;break;}}var v=load[m]||0;return {name:m,ago:ago,status:ago==null?'нет записей':ago===0?'сегодня':ago+' дн. назад',note:v>=16?'объём высокий':(ago!=null&&ago<2?'недавно нагружалась':'')};});}
@@ -3765,6 +3846,23 @@ function renderTrainingInsights(){
     '<div style="font-size:12px;font-weight:700;border-top:1px solid var(--line);padding-top:8px;margin-top:8px">Восстановление мышц</div>'+muscleRecoverySnapshot().map(function(x){return '<div class="entry"><div class="name">'+x.name+'<div style="font-size:11px;color:var(--muted)">'+x.status+'</div></div><div class="kcal" style="font-size:11px">'+(x.note||'ок')+'</div></div>';}).join('')+
    (lines?lines:'<div class="empty">Пока нет завершённых тренировок с подходами</div>')+
     '</div>';
+}
+
+function workoutHistoryReportCard(){
+  var sessions=[];
+  for(var i=0;i<30;i++){
+    var d=shiftDate(todayStr(),-i),ws=getWorkouts(d)||[],done=ws.filter(function(w){return w.done&&w.sets;});
+    if(done.length){
+      var sets=0,volume=0,drops=[];
+      done.forEach(function(w){
+        var reps=parseSetArray(w.sets);sets+=reps.length;volume+=(+w.weight||0)*reps.reduce(function(a,b){return a+b;},0);
+        var q=workoutSetQuality(w);if(q&&q.drops.length)drops.push(w.name+': '+q.drops.map(function(x){return x.from+'→'+x.to;}).join(', '));
+      });
+      sessions.push({date:d,exercises:done.length,sets:sets,volume:round(volume),drops:drops});
+    }
+  }
+  if(!sessions.length)return '<div class="section-title">Статистика тренировок</div><div class="card"><div class="empty">Пока нет завершённых тренировок с записанными повторами. После тренировки статистика появится здесь.</div></div>';
+  return '<div class="section-title">Статистика тренировок · 30 дней</div><div class="card">'+sessions.slice(0,10).map(function(x){return '<div class="entry"><div class="name">'+fmtDateHuman(x.date)+'<div style="font-size:11px;color:var(--muted)">'+x.exercises+' упражнений · '+x.sets+' подходов · объём '+x.volume+' кг·повт.</div>'+(x.drops.length?'<div style="font-size:11px;color:var(--amber);margin-top:3px;">Падение повторов: '+escapeHTML(x.drops.join('; '))+'</div>':'')+'</div></div>';}).join('')+'</div>';
 }
 
 function renderReportTab(content, fab){
@@ -3859,6 +3957,7 @@ function renderReportTab(content, fab){
 
     ${weightPaceCard()}
     ${trainingInsightsHtml}
+    ${workoutHistoryReportCard()}
 
     ${plateauHtml}
     <div class="section-title">По дням</div>
@@ -4021,7 +4120,7 @@ function collectAllData(){
   try{if(_storageOk){for(var ri=0;ri<localStorage.length;ri++){var rk=localStorage.key(ri);if(rk&&rk.indexOf('recovery:')===0){var rd=rk.slice(9);try{recovery[rd]=JSON.parse(localStorage.getItem(rk));}catch(e){}}}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('recovery:')===0&&!recovery[k.slice(9)])recovery[k.slice(9)]=_memStore[k];});
   return {
-    version: 9, appVersion: 40,
+    version: 9, appVersion: 41,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,
@@ -4056,7 +4155,7 @@ async function exportData(){
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kbju-backup-v40-' + todayStr() + '.json';
+    a.download = 'kbju-backup-v41-' + todayStr() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -4100,7 +4199,7 @@ async function exportCSV(){
     rows.push(['Цель объёма мышц','','Подходы на мышцу за неделю',(data.muscleVolumeTargets||{}).min+'–'+(data.muscleVolumeTargets||{}).max,'','','','','','','','']);
     Object.keys(data.goals||{}).sort().forEach(function(k){rows.push(['Цели','',k,data.goals[k],'','','','','','','','']);});
     var csv='\ufeff'+rows.map(function(r){return r.map(csvCell).join(';');}).join('\r\n');
-    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v40-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v41-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
     showToast('CSV-файл подготовлен');
   }catch(e){showToast('Ошибка CSV-экспорта');}
 }
@@ -4982,7 +5081,7 @@ try{
 /* ---- PWA: register service worker ---- */
 if('serviceWorker' in navigator){
   window.addEventListener('load', function(){
-    navigator.serviceWorker.register('./sw.js').catch(function(){});
+    navigator.serviceWorker.register('./sw.js?v=41',{updateViaCache:'none'}).then(function(reg){try{reg.update();}catch(e){} }).catch(function(){});
   });
 }
 </script>

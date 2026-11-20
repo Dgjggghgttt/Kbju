@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v42</title>
+<title>КБЖУ — дневник v43</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v42">
-<meta name="application-version" content="002">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v43">
+<meta name="application-version" content="043">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 002</span>
+    <span class="app-build-version">ВЕРСИЯ 043</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -1697,6 +1697,22 @@ function openMacroBreakdown(macro){
   document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
 }
 
+function dashboardCard(entries, date){
+  var t=computeTotals(entries),g=activeGoals(date),pct=function(v,n){return n?Math.min(100,Math.round(v/n*100)):0;};
+  var remaining=Math.max(0,Math.round(g.kcal-t.kcal));
+  var week=[];for(var i=6;i>=0;i--){var d=shiftDate(date,-i),e=getDiary(d),tot=computeTotals(e);week.push({date:d,kcal:tot.kcal,has:e.length>0});}
+  var bars=week.map(function(x){var h=x.has?Math.max(4,Math.min(34,x.kcal/Math.max(1,g.kcal)*34)):3;return '<div title="'+fmtDateHuman(x.date)+' · '+round(x.kcal)+' ккал" style="flex:1;height:38px;display:flex;align-items:flex-end;justify-content:center;"><i style="display:block;width:70%;height:'+h+'px;border-radius:4px 4px 1px 1px;background:'+(x.kcal>g.kcal?'var(--red)':'var(--green)')+';opacity:'+(x.has?'1':'.18')+';"></i></div>';}).join('');
+  return '<div class="card" style="padding:12px 14px;border:1px solid var(--line);"><div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:13px;">Сводка дня</b><span style="font-size:11px;color:var(--muted);">'+fmtDateHuman(date)+'</span></div><div style="display:flex;align-items:baseline;gap:6px;margin:8px 0 3px;"><strong style="font:700 25px var(--mono);">'+round(t.kcal)+'</strong><span style="font-size:12px;color:var(--muted);">/ '+g.kcal+' ккал · осталось '+remaining+'</span></div><div class="bar"><i style="width:'+pct(t.kcal,g.kcal)+'%"></i></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;">'+[['Б',t.protein,g.protein],['Ж',t.fat,g.fat],['У',t.carbs,g.carbs]].map(function(x){return '<div><div style="font-size:11px;color:var(--muted);">'+x[0]+'</div><b style="font:600 13px var(--mono);">'+round(x[1])+'<span style="color:var(--muted);font-weight:400;">/'+x[2]+'</span></b><div class="bar" style="height:3px;margin-top:4px;"><i style="width:'+pct(x[1],x[2])+'%"></i></div></div>';}).join('')+'</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;"><span style="font-size:11px;color:var(--muted);">Калории за 7 дней</span><span style="font-size:10px;color:var(--muted);">'+week.filter(function(x){return x.has;}).length+'/7 дней</span></div><div style="display:flex;gap:5px;align-items:flex-end;margin-top:2px;">'+bars+'</div><div style="display:flex;justify-content:flex-end;margin-top:5px;"><button type="button" class="btn ghost" id="homeBlocksSettings" style="padding:4px 8px;font-size:10px;">Настроить блоки</button></div><div style="display:flex;gap:7px;margin-top:6px;"><button class="btn primary" id="dashAddFood" style="flex:1;padding:9px;font-size:12px;">＋ Добавить еду</button><button class="btn ghost" id="dashAddMeasure" style="flex:1;padding:9px;font-size:12px;">＋ Замеры</button></div></div>';
+}
+
+function openHomeBlocksSettings(){
+  var p=sGet('homeBlockPrefs',{dashboard:true,protein:true,creatine:true,bike:true});
+  var items=[['dashboard','Сводка дня'],['protein','Белок по приёмам пищи'],['creatine','Креатин'],['bike','Велотренажёр']];
+  var root=document.getElementById('modalRoot');root.innerHTML='<div class="overlay" id="homePrefsOverlay"><div class="sheet"><h2>Блоки главного экрана</h2><div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Можно скрыть ненужные блоки. Данные не удаляются.</div>'+items.map(function(x){return '<label style="display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);font-size:13px;"><input type="checkbox" data-home-pref="'+x[0]+'" '+(p[x[0]]!==false?'checked':'')+'>'+x[1]+'</label>';}).join('')+'<button class="btn primary" id="saveHomePrefs" style="width:100%;margin-top:14px;">Сохранить</button></div></div>';
+  document.getElementById('saveHomePrefs').onclick=function(){document.querySelectorAll('[data-home-pref]').forEach(function(el){p[el.dataset.homePref]=el.checked;});sSet('homeBlockPrefs',p);closeModal();render();};
+  document.getElementById('homePrefsOverlay').onclick=function(e){if(e.target.id==='homePrefsOverlay')closeModal();};activateModal();
+}
+
 function renderDiaryTab(content, fab){
   const entries = getDiary(currentDate);
   var dayTot = computeTotals(entries);
@@ -1705,7 +1721,8 @@ function renderDiaryTab(content, fab){
   var crossed = crossInfo.crossed;
   var crossedMacros = crossInfo.crossedMacros;
   var macroShort = { protein:'Б', fat:'Ж', carbs:'У', kcal:'ккал' };
-  var html = '';
+  var homePrefs=sGet('homeBlockPrefs',{dashboard:true,protein:true,creatine:true,bike:true});
+  var html = (homePrefs.dashboard===false?'<button type="button" class="btn ghost" id="homeBlocksSettings" style="width:100%;margin-bottom:10px;">Настроить главный экран</button>':dashboardCard(entries,currentDate));
 
   var base = baseGoals(currentDate);
   var adjNote = '';
@@ -1749,7 +1766,7 @@ function renderDiaryTab(content, fab){
 
   var creatTaken = !!creatineLog[currentDate];
   var bike = getBike(currentDate);
-  var creatHtml = `<div class="card" style="margin-bottom:10px;padding:10px 14px;">
+  var creatHtml = homePrefs.creatine===false?'':`<div class="card" style="margin-bottom:10px;padding:10px 14px;">
     <label style="display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none;">
       <input type="checkbox" id="creatineCheck" ${creatTaken?'checked':''} style="width:22px;height:22px;accent-color:var(--green);">
       <span style="flex:1;">
@@ -1758,7 +1775,7 @@ function renderDiaryTab(content, fab){
       </span>
     </label>
   </div>`;
-  var bikeHtml = `<div class="card" style="margin-bottom:10px;padding:10px 14px;">
+  var bikeHtml = homePrefs.bike===false?'':`<div class="card" style="margin-bottom:10px;padding:10px 14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
       <div style="flex:1;">
         <div style="font-weight:600;font-size:14.5px;">🚴 Велотренажёр</div>
@@ -1772,19 +1789,22 @@ function renderDiaryTab(content, fab){
 
   var mealProtein={breakfast:0,lunch:0,dinner:0,snack:0};
   entries.forEach(function(e){var key=e.meal||'snack';if(mealProtein[key]==null)key='snack';mealProtein[key]+=entryMacros(e).protein;});
-  var mealProteinHtml='<div class="card" style="padding:11px 13px;margin-bottom:10px;"><div style="font-size:12px;font-weight:700;margin-bottom:7px;">Белок по приёмам пищи · ориентир 30 г</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;">'+MEAL_ORDER.map(function(m){var v=round(mealProtein[m]||0);var ok=v>=30;return '<div style="font-size:12px;color:var(--muted);">'+MEAL_LABELS[m]+' <b style="color:'+(ok?'var(--green)':'var(--ink)')+'">'+v+' / 30 г</b><div class="bar" style="height:4px;margin-top:4px;"><i style="width:'+Math.min(100,v/30*100)+'%;background:'+(ok?'var(--green)':'var(--amber)')+'"></i></div></div>';}).join('')+'</div></div>';
+  var mealProteinHtml=homePrefs.protein===false?'':'<div class="card" style="padding:11px 13px;margin-bottom:10px;"><div style="font-size:12px;font-weight:700;margin-bottom:7px;">Белок по приёмам пищи · ориентир 30 г</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;">'+MEAL_ORDER.map(function(m){var v=round(mealProtein[m]||0);var ok=v>=30;return '<div style="font-size:12px;color:var(--muted);">'+MEAL_LABELS[m]+' <b style="color:'+(ok?'var(--green)':'var(--ink)')+'">'+v+' / 30 г</b><div class="bar" style="height:4px;margin-top:4px;"><i style="width:'+Math.min(100,v/30*100)+'%;background:'+(ok?'var(--green)':'var(--amber)')+'"></i></div></div>';}).join('')+'</div></div>';
   if(!entries.length){
-    html += adjNote + creatHtml + `<div class="empty">Пока пусто.<br>Добавь первый приём пищи за день.</div>`;
+    html += adjNote + creatHtml + bikeHtml + `<div class="empty">Пока пусто.<br>Добавь первый приём пищи за день.</div>`;
   } else {
     var sortedEntries = entries.slice().sort(function(a,b){
       return (a.time||'99:99').localeCompare(b.time||'99:99');
     });
-    html += adjNote + creatHtml + mealProteinHtml + `<div class="card">${sortedEntries.map(entryRow).join('')}</div>`;
+    html += adjNote + creatHtml + bikeHtml + mealProteinHtml + `<div class="card">${sortedEntries.map(entryRow).join('')}</div>`;
   }
 
   // Тренировочный раздел вынесен в отдельную вкладку «Тренировки».
   html += '<button class="btn primary" id="startTodayWorkout" style="width:100%;margin:12px 0;">🏋️ Начать сегодняшнюю тренировку</button>';
   content.innerHTML = html;
+  var homeSettings=document.getElementById('homeBlocksSettings');if(homeSettings)homeSettings.onclick=function(){openHomeBlocksSettings();};
+  var dashAddFood=document.getElementById('dashAddFood');if(dashAddFood)dashAddFood.onclick=function(){openAddEntry(null);};
+  var dashAddMeasure=document.getElementById('dashAddMeasure');if(dashAddMeasure)dashAddMeasure.onclick=function(){openMeasureForm(null);};
   var startToday=document.getElementById('startTodayWorkout');if(startToday)startToday.onclick=function(){currentDate=todayStr();var key='workoutSession:'+currentDate,st=sGet(key,null);if(!st||!st.started||st.ended)sSet(key,{started:Date.now(),ended:null});activeTab='workouts';render();};
   bindProgressPhotos();
   bindExerciseHistory();
@@ -2814,7 +2834,7 @@ function renderWorkoutsTab(content,fab){
   }else{
   html+='<div class="card"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">План на выбранный день. Фактические подходы сохраняются отдельно в журнале.</div>';
   if(rows.length){
-    html+=orderWorkoutRows(rows).map(function(w,i){var realIndex=rows.indexOf(w);return '<div class="entry" style="flex-wrap:wrap;"><div class="name" style="flex:1;min-width:150px;">'+escapeHTML(w.name||'Упражнение')+'<div style="font-size:11px;color:var(--muted);">'+escapeHTML((w.targetWeight!=null?w.targetWeight+' кг · ':'')+(w.targetSets||w.sets||'План не задан'))+'</div></div><button class="btn ghost" data-wedit-index="'+realIndex+'">Изменить</button><button class="btn ghost" data-wreplace-index="'+realIndex+'">Заменить</button><button class="del" data-wdelete-index="'+realIndex+'">✕</button></div>';}).join('');
+    html+=orderWorkoutRows(rows).map(function(w,i){var realIndex=rows.indexOf(w),last=getLastRealSession(w.name,currentDate),lastLine=last?'Прошлый раз: '+(last.weight!=null?last.weight+' кг · ':'')+(last.sets||'—')+' · '+fmtDateHuman(last.date):'Пока нет выполненных записей';return '<div class="entry" style="flex-wrap:wrap;"><div class="name" style="flex:1;min-width:150px;">'+escapeHTML(w.name||'Упражнение')+'<div style="font-size:11px;color:var(--muted);">'+escapeHTML((w.targetWeight!=null?w.targetWeight+' кг · ':'')+(w.targetSets||w.sets||'План не задан'))+'</div><div style="font-size:10px;color:var(--green);margin-top:3px;">'+escapeHTML(lastLine)+'</div></div><button class="btn ghost" data-wedit-index="'+realIndex+'">Изменить</button><button class="btn ghost" data-wreplace-index="'+realIndex+'">Заменить</button><button class="del" data-wdelete-index="'+realIndex+'">✕</button></div>';}).join('');
   }else html+='<div class="empty">На этот день пока нет упражнений.</div>';
   html+='<button class="btn ghost" id="wAdd" style="width:100%;margin-top:8px;">＋ Добавить упражнение</button><button class="btn ghost" id="wSeed" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button><button class="btn ghost" id="wLibrary" style="width:100%;margin-top:6px;">База упражнений</button></div>';
   }
@@ -2833,6 +2853,7 @@ function renderWorkoutsTab(content,fab){
   content.querySelectorAll('[data-training-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-training-date');render();};});
   var bikeBtn=document.getElementById('workoutBikeBtn');if(bikeBtn)bikeBtn.onclick=openBikeForm;
   var prevDay=document.getElementById('workoutPrevDay');if(prevDay)prevDay.onclick=function(){currentDate=shiftDate(currentDate,-1);render();};
+  var swipeStart=null;content.ontouchstart=function(e){if(e.touches&&e.touches[0])swipeStart=e.touches[0].clientX;};content.ontouchend=function(e){if(swipeStart==null||!e.changedTouches||!e.changedTouches[0])return;var dx=e.changedTouches[0].clientX-swipeStart;swipeStart=null;if(Math.abs(dx)>85){currentDate=shiftDate(currentDate,dx<0?1:-1);render();}};
   var nextDay=document.getElementById('workoutNextDay');if(nextDay)nextDay.onclick=function(){currentDate=shiftDate(currentDate,1);render();};
   var todayBtn=document.getElementById('workoutToday');if(todayBtn)todayBtn.onclick=function(){currentDate=todayStr();render();};
   var add=document.getElementById('wAdd');if(add)add.onclick=function(){openWorkoutForm(null);};
@@ -3299,6 +3320,15 @@ function bindWeekPairHandlers(){
 
 function renderWeightTab(content, fab, append){
   const sorted = [...weightLog].sort(function(a,b){ return a.date.localeCompare(b.date); });
+  var metricRows=(measureLog||[]).filter(function(m){return m.waist!=null;}).slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var bodyMetricHtml='';
+  if(sorted.length>=2||metricRows.length>=2){
+    var firstW=sorted[0],lastW=sorted[sorted.length-1],firstM=metricRows[0],lastM=metricRows[metricRows.length-1];
+    var parts=[];
+    if(firstW&&lastW&&firstW!==lastW)parts.push('<div class="entry"><div class="name">Вес</div><div class="kcal">'+(lastW.kg-firstW.kg>0?'+':'')+round(lastW.kg-firstW.kg)+' кг</div></div>');
+    if(firstM&&lastM&&firstM!==lastM)parts.push('<div class="entry"><div class="name">Талия</div><div class="kcal">'+(lastM.waist-firstM.waist>0?'+':'')+round(lastM.waist-firstM.waist)+' см</div></div>');
+    bodyMetricHtml='<div class="section-title">Состав тела · динамика</div><div class="card"><div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Сопоставление фактических записей веса и талии за весь период. Разные единицы не объединяются в одну шкалу.</div>'+(parts.join('')||'<div class="empty">Добавь ещё измерения для сравнения</div>')+'<button class="btn ghost" id="quickMeasureOpen" style="width:100%;margin-top:8px;">＋ Быстро записать замеры</button></div>';
+  }
   // период для графика: выбранный periodFrom–periodTo или последние ~90 дней
   var chartFrom = periodFrom || null;
   var chartTo = periodTo || null;
@@ -3478,6 +3508,7 @@ function renderWeightTab(content, fab, append){
         </div>`;
       }).join('');
     })()}</div>`;
+  if(bodyMetricHtml){_whtml=bodyMetricHtml+_whtml;}
   if(append){
     if(content.insertAdjacentHTML) content.insertAdjacentHTML('beforeend', _whtml);
     else content.innerHTML += _whtml;
@@ -3522,6 +3553,7 @@ function renderWeightTab(content, fab, append){
   });
   var setBtn = document.getElementById('setGoalWeightBtn');
   if(setBtn) setBtn.onclick = openWeightGoalForm;
+  var quickMeasureOpen=document.getElementById('quickMeasureOpen');if(quickMeasureOpen)quickMeasureOpen.onclick=function(){openMeasureForm(null);};
   var addM = document.getElementById('addMeasureBtn');
   if(addM) addM.onclick = function(){ openMeasureForm(null); };
   var tipsM = document.getElementById('measureTipsBtn');
@@ -3984,6 +4016,8 @@ function renderReportTab(content, fab){
     ${weightPaceCard()}
 
     ${plateauHtml}
+    <div class="section-title">Календарь питания · 28 дней</div>
+    <div class="card" style="padding:10px 12px;"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;text-align:center;font-size:10px;color:var(--muted);margin-bottom:6px;">Пн Вт Ср Чт Пт Сб Вс</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">'+(function(){var out='';for(var ci=27;ci>=0;ci--){var cd=shiftDate(todayStr(),-ci),ce=getDiary(cd),ct=computeTotals(ce),cg=activeGoals(cd),ok=ce.length>0&&ct.kcal<=cg.kcal*1.1;var wd=(weekdayOf(cd)+6)%7;if(ci===27){for(var z=0;z<wd;z++)out+='<span></span>'; }out+='<button type="button" data-cal-date="'+cd+'" title="'+fmtDateHuman(cd)+' · '+(ce.length?round(ct.kcal)+' ккал':'нет записей')+'" style="aspect-ratio:1;border:0;border-radius:8px;background:'+(ce.length?(ok?'var(--green-dim)':'var(--red-dim)'):'var(--bg)')+';color:'+(ce.length?(ok?'var(--green)':'var(--red)'):'var(--muted)')+';font-size:11px;font-weight:600;">'+Number(cd.slice(8))+'</button>';}return out;})()+'</div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:10px;color:var(--muted);"><span>🟢 есть записи, в пределах цели</span><span>🔴 выше цели</span><span>Серый — нет записей</span></div></div>
     <div class="section-title">По дням</div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Нажми на день → дневник</div>
     <div class="card">${rows.map(function(r){
@@ -4017,6 +4051,7 @@ function renderReportTab(content, fab){
       <button class="btn ghost" id="importBtn" style="width:100%;">Импорт данных</button>
       <input type="file" id="importFile" accept="application/json,.json,text/plain" style="display:none">
     </div>`;
+  content.querySelectorAll('[data-cal-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-cal-date');activeTab='diary';render();};});
   content.querySelectorAll('[data-open-diary]').forEach(function(row){
     row.onclick = function(){
       currentDate = row.getAttribute('data-open-diary');
@@ -4624,8 +4659,10 @@ function openAddEntry(existing){
     host.querySelectorAll('[data-quick-food]').forEach(function(b){b.onclick=function(){var p=products.find(function(x){return x.id===b.getAttribute('data-quick-food');});if(!p)return;selected=p;searchEl.value=p.name;var remembered=rememberedFoodGrams(p.id);gramsEl.value=remembered||100;amountUnit='grams';if(productHasPortion(p)&&remembered){var pn=remembered/p.portionGrams;if(Math.abs(pn-Math.round(pn*2)/2)<0.08){amountUnit='portions';gramsEl.value=Math.round(pn*2)/2;}}refreshUnitUI();renderResults(p.name);updateLive();};});
   }
   function renderResults(q){
-    var qLower = (q||'').toLowerCase();
-    var list = products.filter(function(p){ return p.name.toLowerCase().indexOf(qLower) !== -1; });
+    var qLower = (q||'').toLowerCase().replace(/ё/g,'е').trim();
+    var aliasMap={'творог':'творог','курица':'курин','грудка':'курин','куриное филе':'курин','тунец':'тунец','овсянка':'овсян','овсяные хлопья':'овсян','яйца':'яйц','яйцо':'яйц','гречка':'греч','рис':'рис','макароны':'макарон','йогурт':'йогурт','сырники':'сырник','картошка':'картоф','картофель':'картоф','банан':'банан','яблоко':'яблок'};
+    var terms=qLower.split(/\s+/).filter(Boolean).map(function(t){return aliasMap[t]||t;});
+    var list = products.filter(function(p){var n=p.name.toLowerCase().replace(/ё/g,'е');return !terms.length||terms.every(function(t){return n.indexOf(t)!==-1;});});
     // Избранное выше, затем недавно добавлявшиеся продукты.
     var recentRank = {};
     for(var di=0;di<14;di++){
@@ -4988,10 +5025,12 @@ function openMeasureTips(){
 function openMeasureForm(existing){
   var root = document.getElementById('modalRoot');
   var d0 = existing ? existing.date : todayStr();
+  var prevMeasure=(measureLog||[]).filter(function(m){return m.date<d0;}).sort(function(a,b){return b.date.localeCompare(a.date);})[0];
+  var compareNote=prevMeasure?'<div class="card" style="padding:9px 11px;margin-bottom:10px;font-size:11px;color:var(--muted);">Предыдущие замеры · '+fmtDateHuman(prevMeasure.date)+'<br>'+[['waist','Талия'],['bicepL','Бицепс Л'],['bicepR','Бицепс П'],['chest','Грудь']].filter(function(x){return prevMeasure[x[0]]!=null;}).map(function(x){return x[1]+': '+prevMeasure[x[0]]+' см';}).join(' · ')+'</div>':'';
   root.innerHTML = `
     <div class="overlay" id="ov">
       <div class="sheet">
-        <h2>${existing?'Изменить замеры':'Замеры'}</h2>
+        <h2>${existing?'Изменить замеры':'Замеры'}</h2>${compareNote}
         <div class="field"><label>Дата</label><input id="mDate" type="date" value="${d0}"></div>
         <div class="row2">
           <div class="field"><label>Шея, см</label><input id="mNeck" type="number" inputmode="decimal" step="0.1" placeholder="38" value="${existing&&existing.neck!=null?existing.neck:''}"></div>

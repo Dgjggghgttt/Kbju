@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v43</title>
+<title>КБЖУ — дневник v44</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v43">
-<meta name="application-version" content="043">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v44">
+<meta name="application-version" content="044">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 043</span>
+    <span class="app-build-version">ВЕРСИЯ 044</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -1575,25 +1575,7 @@ function renderReceipt(){
     </div>
     ${train ? '<div style="text-align:center;margin:4px 0 2px;font-size:12.5px;color:var(--green);font-weight:600;">🏋️ Тренировка (есть упражнения)</div>' : ''}
     ${bikeNote}
-    <div class="totals-row">
-      <div class="macro-tap ${overP?'over-macro':''}" data-macro="protein"><span class="lab">Белки</span>${round(t.protein)} / ${g.protein} г</div>
-      <div class="macro-tap ${overF?'over-macro':''}" data-macro="fat"><span class="lab">Жиры</span>${round(t.fat)} / ${g.fat} г</div>
-      <div class="macro-tap ${overC?'over-macro':''}" data-macro="carbs"><span class="lab">Углеводы</span>${round(t.carbs)} / ${g.carbs} г</div>
-    </div>
-    <div class="macro-bars">
-      <div class="macro-bar-item ${overP?'over':''}"><div class="mb-lab"><span>Б</span><span>${realPct(t.protein,g.protein)}%</span></div><div class="mb-track"><i style="width:${barW(t.protein,g.protein)}%"></i></div></div>
-      <div class="macro-bar-item ${overF?'over':''}"><div class="mb-lab"><span>Ж</span><span>${realPct(t.fat,g.fat)}%</span></div><div class="mb-track"><i style="width:${barW(t.fat,g.fat)}%"></i></div></div>
-      <div class="macro-bar-item ${overC?'over':''}"><div class="mb-lab"><span>У</span><span>${realPct(t.carbs,g.carbs)}%</span></div><div class="mb-track"><i style="width:${barW(t.carbs,g.carbs)}%"></i></div></div>
-    </div>
-    <div class="kcal-line macro-tap ${over?'over-macro':''}" data-macro="kcal">
-      <span class="big">${round(t.kcal)}</span>
-      <span class="of">из ${round(budget)} ккал${bikeBurn?(' (план '+g.kcal+'+вело)'):''}${over ? ' · +'+round(t.kcal-baseBudget)+' к базе' : ''}</span>
-    </div>
-    <div class="bar ${over?'over':''}"><i style="width:${barW(t.kcal,budget)}%"></i></div>
-    <div style="display:flex;gap:10px;margin-top:8px;font-size:11px;color:var(--muted);">
-      <div style="flex:1;">Клетчатка ${round(t.fiber)}/${fiberGoal} г</div>
-      <div style="flex:1;text-align:right;">Овощи+фр. ${round(vf)}/${vfGoal} г</div>
-    </div>
+
   `;
   el.querySelector('[data-nav="-1"]').onclick = ()=>{ currentDate = shiftDate(currentDate,-1); render(); };
   el.querySelector('[data-nav="1"]').onclick = ()=>{ currentDate = shiftDate(currentDate,1); render(); };
@@ -1702,7 +1684,7 @@ function dashboardCard(entries, date){
   var remaining=Math.max(0,Math.round(g.kcal-t.kcal));
   var week=[];for(var i=6;i>=0;i--){var d=shiftDate(date,-i),e=getDiary(d),tot=computeTotals(e);week.push({date:d,kcal:tot.kcal,has:e.length>0});}
   var bars=week.map(function(x){var h=x.has?Math.max(4,Math.min(34,x.kcal/Math.max(1,g.kcal)*34)):3;return '<div title="'+fmtDateHuman(x.date)+' · '+round(x.kcal)+' ккал" style="flex:1;height:38px;display:flex;align-items:flex-end;justify-content:center;"><i style="display:block;width:70%;height:'+h+'px;border-radius:4px 4px 1px 1px;background:'+(x.kcal>g.kcal?'var(--red)':'var(--green)')+';opacity:'+(x.has?'1':'.18')+';"></i></div>';}).join('');
-  return '<div class="card" style="padding:12px 14px;border:1px solid var(--line);"><div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:13px;">Сводка дня</b><span style="font-size:11px;color:var(--muted);">'+fmtDateHuman(date)+'</span></div><div style="display:flex;align-items:baseline;gap:6px;margin:8px 0 3px;"><strong style="font:700 25px var(--mono);">'+round(t.kcal)+'</strong><span style="font-size:12px;color:var(--muted);">/ '+g.kcal+' ккал · осталось '+remaining+'</span></div><div class="bar"><i style="width:'+pct(t.kcal,g.kcal)+'%"></i></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;">'+[['Б',t.protein,g.protein],['Ж',t.fat,g.fat],['У',t.carbs,g.carbs]].map(function(x){return '<div><div style="font-size:11px;color:var(--muted);">'+x[0]+'</div><b style="font:600 13px var(--mono);">'+round(x[1])+'<span style="color:var(--muted);font-weight:400;">/'+x[2]+'</span></b><div class="bar" style="height:3px;margin-top:4px;"><i style="width:'+pct(x[1],x[2])+'%"></i></div></div>';}).join('')+'</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;"><span style="font-size:11px;color:var(--muted);">Калории за 7 дней</span><span style="font-size:10px;color:var(--muted);">'+week.filter(function(x){return x.has;}).length+'/7 дней</span></div><div style="display:flex;gap:5px;align-items:flex-end;margin-top:2px;">'+bars+'</div><div style="display:flex;justify-content:flex-end;margin-top:5px;"><button type="button" class="btn ghost" id="homeBlocksSettings" style="padding:4px 8px;font-size:10px;">Настроить блоки</button></div><div style="display:flex;gap:7px;margin-top:6px;"><button class="btn primary" id="dashAddFood" style="flex:1;padding:9px;font-size:12px;">＋ Добавить еду</button><button class="btn ghost" id="dashAddMeasure" style="flex:1;padding:9px;font-size:12px;">＋ Замеры</button></div></div>';
+  return '<div class="card" style="padding:12px 14px;border:1px solid var(--line);"><div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:13px;">Сводка дня</b><span style="font-size:11px;color:var(--muted);">'+fmtDateHuman(date)+'</span></div><div style="display:flex;align-items:baseline;gap:6px;margin:8px 0 3px;"><strong style="font:700 25px var(--mono);">'+round(t.kcal)+'</strong><span style="font-size:12px;color:var(--muted);">/ '+g.kcal+' ккал · осталось '+remaining+'</span></div><div class="bar"><i style="width:'+pct(t.kcal,g.kcal)+'%"></i></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;">'+[['Б',t.protein,g.protein],['Ж',t.fat,g.fat],['У',t.carbs,g.carbs]].map(function(x){return '<div><div style="font-size:11px;color:var(--muted);">'+x[0]+'</div><b style="font:600 13px var(--mono);">'+round(x[1])+'<span style="color:var(--muted);font-weight:400;">/'+x[2]+'</span></b><div class="bar" style="height:3px;margin-top:4px;"><i style="width:'+pct(x[1],x[2])+'%"></i></div></div>';}).join('')+'</div></div>';
 }
 
 function openHomeBlocksSettings(){
@@ -1802,10 +1784,7 @@ function renderDiaryTab(content, fab){
   // Тренировочный раздел вынесен в отдельную вкладку «Тренировки».
   html += '<button class="btn primary" id="startTodayWorkout" style="width:100%;margin:12px 0;">🏋️ Начать сегодняшнюю тренировку</button>';
   content.innerHTML = html;
-  var homeSettings=document.getElementById('homeBlocksSettings');if(homeSettings)homeSettings.onclick=function(){openHomeBlocksSettings();};
-  var dashAddFood=document.getElementById('dashAddFood');if(dashAddFood)dashAddFood.onclick=function(){openAddEntry(null);};
-  var dashAddMeasure=document.getElementById('dashAddMeasure');if(dashAddMeasure)dashAddMeasure.onclick=function(){openMeasureForm(null);};
-  var startToday=document.getElementById('startTodayWorkout');if(startToday)startToday.onclick=function(){currentDate=todayStr();var key='workoutSession:'+currentDate,st=sGet(key,null);if(!st||!st.started||st.ended)sSet(key,{started:Date.now(),ended:null});activeTab='workouts';render();};
+  var startToday=document.getElementById('startTodayWorkout');if(startToday)startToday.onclick=function(){currentDate=todayStr();openWorkoutPreparation();};
   bindProgressPhotos();
   bindExerciseHistory();
   bindWorkoutSessionClock();
@@ -2430,7 +2409,7 @@ function bodyMeasurementTrendHtml(){
   }).join('');
 }
 
-function workoutPlanEstimate(rows){var sets=0,rest=0,exercise=0,transition=0;(rows||[]).forEach(function(w){var a=parseSetArray(w.targetSets||w.sets||'3x10');var count=a.length||3;sets+=count;exercise+=count*40;rest+=Math.max(0,count-1)*workoutRestSeconds(w.name);});transition=Math.max(0,(rows||[]).length-1)*90;var total=Math.round((sets*40+rest+transition+300)/60);return {minutes:total,sets:sets};}
+function workoutPlanEstimate(rows){var sets=0,transition=0;(rows||[]).forEach(function(w){var a=parseSetArray(w.targetSets||w.sets||'3x10');sets+=a.length||3;});transition=Math.max(0,(rows||[]).length-1)*60;var total=Math.round((sets*240+transition+300)/60);var recent=trainingJournalList().filter(function(x){return x.status==='finished'&&(x.sets||[]).length>0;}).slice(-5);if(recent.length){var avg=recent.reduce(function(a,x){return a+Math.max(0,((x.ended||x.started)-x.started)/60000);},0)/recent.length;var avgSets=recent.reduce(function(a,x){return a+(x.plannedSets||x.sets.length||0);},0)/recent.length;if(avgSets>0)total=Math.round((avg/avgSets)*sets+transition/60+5);}return {minutes:Math.max(5,total),sets:sets};}
 var _workoutFlowInterval=null, _workoutWakeLock=null;
 function workoutFlowKey(date){return 'workoutFlow:'+date;}
 function workoutFlowState(){return sGet(workoutFlowKey(currentDate),null);}
@@ -2453,6 +2432,21 @@ function workoutFlowSpeak(message){
   }catch(e){_workoutSpeechBusy=false;}
 }
 function workoutFlowWake(on){if(on){try{if(navigator.wakeLock&&navigator.wakeLock.request)navigator.wakeLock.request('screen').then(function(x){_workoutWakeLock=x;}).catch(function(){});}catch(e){}}else{try{if(_workoutWakeLock){_workoutWakeLock.release();_workoutWakeLock=null;}}catch(e){}}}
+function openWorkoutPreparation(){
+  var rows=getWorkouts(todayStr())||[];
+  if(!rows.length){try{prepareWorkoutsForDate(todayStr());rows=getWorkouts(todayStr())||[];}catch(e){}}
+  if(!rows.length){showToast('На сегодня пока нет плана тренировок');activeTab='workouts';render();return;}
+  var estimate=workoutPlanEstimate(rows),items=orderWorkoutRows(rows).map(function(w){
+    var idx=rows.indexOf(w),last=getLastRealSession(w.name,todayStr()),next=last?suggestNextSession(last,w.name):null;
+    var note=last?(next&&next.text?next.text:((last.sets||'')?'Прошлый раз: '+(last.weight!=null?last.weight+' кг · ':'')+last.sets:'Есть предыдущая запись')):'Пока нет истории — начальная нагрузка';
+    return '<div class="entry" style="align-items:flex-start;gap:8px;"><div class="name" style="flex:1;min-width:0;">'+escapeHTML(w.name||'Упражнение')+'<div style="font-size:11px;color:var(--muted);margin-top:3px;">'+escapeHTML((w.targetWeight!=null?w.targetWeight+' кг · ':'')+(w.targetSets||w.sets||'3 подхода'))+'</div><div style="font-size:11px;color:var(--green);margin-top:4px;">'+escapeHTML(note)+'</div></div><button class="btn ghost" data-prep-replace="'+idx+'">Заменить</button></div>';
+  }).join('');
+  var root=document.getElementById('modalRoot');
+  root.innerHTML='<div class="overlay" id="workoutPrepOverlay"><div class="sheet"><h2>План тренировки на сегодня</h2><div class="card" style="padding:10px 12px;margin:8px 0 12px;"><div style="font-size:12px;color:var(--muted);">Предполагаемая длительность</div><div style="font-size:25px;font-weight:700;margin-top:3px;">≈ '+estimate.minutes+' минут</div><div style="font-size:11px;color:var(--muted);">'+rows.length+' упражнений · '+estimate.sets+' подходов. Время ориентировочное, с учётом пауз и переходов.</div></div>'+items+'<button class="btn primary" id="confirmWorkoutPrep" style="width:100%;margin-top:14px;">Начать тренировку</button><button class="btn ghost" id="cancelWorkoutPrep" style="width:100%;margin-top:7px;">Не сейчас</button></div></div>';
+  root.querySelectorAll('[data-prep-replace]').forEach(function(b){b.onclick=function(){var idx=Number(b.getAttribute('data-prep-replace'));closeModal();activeTab='workouts';render();setTimeout(function(){replaceWorkoutExercise(idx);},80);};});
+  document.getElementById('confirmWorkoutPrep').onclick=function(){closeModal();currentDate=todayStr();var q=workoutFlowQueue(getWorkouts(currentDate));if(!q.length){showToast('В плане нет подходов');return;}var st={status:'set',sessionId:uid(),date:currentDate,started:Date.now(),setStarted:Date.now(),index:0,queue:q,completed:0,restAdjust:{}};saveTrainingJournalSession(st,false);sSet(workoutFlowKey(currentDate),st);workoutFlowWake(true);workoutFlowSpeak('Тренировка началась. '+q[0].name);activeTab='workouts';render();};
+  document.getElementById('cancelWorkoutPrep').onclick=closeModal;var ov=document.getElementById('workoutPrepOverlay');ov.onclick=function(e){if(e.target===ov)closeModal();};activateModal();
+}
 function workoutFlowCard(){
   var st=workoutFlowState();
   if(!st||st.status==='finished'){
@@ -2839,19 +2833,22 @@ function renderWorkoutsTab(content,fab){
   html+='<button class="btn ghost" id="wAdd" style="width:100%;margin-top:8px;">＋ Добавить упражнение</button><button class="btn ghost" id="wSeed" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button><button class="btn ghost" id="wLibrary" style="width:100%;margin-top:6px;">База упражнений</button></div>';
   }
   var bike=getBike(currentDate);
+  if(!dayFact.length&&rows.length)html+='<button class="btn ghost" id="cancelPlannedWorkout" style="width:100%;margin:0 0 8px;">Отменить тренировку</button>';
+  html+='<button class="btn ghost" id="workoutAddMeasure" style="width:100%;margin:0 0 8px;">＋ Замеры тела</button>';
   html+='<div class="section-title">Кардио</div><div class="card" style="padding:10px 12px;"><div class="entry"><div class="name">🚴 Велотренажёр<div style="font-size:11px;color:var(--muted);">'+(bike?(bike.km+' км · '+round(bike.kcal)+' ккал (оценка)'):'Сегодня не записан')+'</div></div><button class="btn ghost" id="workoutBikeBtn">'+(bike?'Изменить':'Добавить')+'</button></div></div>';
-  html+=workoutSessionCard();
   html+=workoutFlowCard();
   html+='<div class="section-title">Фактическая нагрузка · 7 дней</div><div class="card"><div class="entry"><div class="name">Выполнено подходов</div><div class="kcal">'+stats.sets+'</div></div><div class="entry"><div class="name">Тренировок</div><div class="kcal">'+stats.sessions+'</div></div><div class="entry"><div class="name">Упражнений</div><div class="kcal">'+stats.exercises+'</div></div><div class="entry"><div class="name">Тоннаж</div><div class="kcal">'+stats.volume.toLocaleString('ru-RU')+' кг</div></div><div style="font-size:10px;color:var(--muted);margin-top:6px;">Только фактически записанные подходы из журнала, а не запланированные.</div></div>';
   html+=renderTrainingInsights()+workoutHistoryReportCard()+muscleDevelopmentMap()+jointLoadCard()+tenPercentProjectionCard()+exerciseEffectivenessCard()+loadRotationCard()+consistencyCalendarCard()+exerciseHistoryCard();
   html+='<div class="section-title">Объём и корректировка · 4 недели</div><div class="card">'+muscleProgressByGroup()+'</div>'+volumeAdjustmentCard();
   html+=progressPhotoCard();
   html+='<div class="section-title">История тренировок</div>';
-  html+=all.length?all.map(function(s){var sets=s.sets||[],vol=sets.reduce(function(a,x){return a+(+x.weight||0)*(+x.reps||0);},0),names={};sets.forEach(function(x){names[x.name||'Упражнение']=1;});return '<div class="card" style="margin-bottom:8px;"><b>'+escapeHTML(fmtDateHuman(s.date))+'</b><div style="font-size:12px;color:var(--muted);margin:4px 0;">'+(s.status==='finished'?'Завершена':'Не завершена')+' · '+sets.length+' подходов · '+Object.keys(names).length+' упражнений · '+Math.round(vol)+' кг тоннажа</div>'+sets.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+' · подход '+x.set+'</div><div class="kcal">'+(x.weight?x.weight+' кг × ':'')+x.reps+'</div></div>';}).join('')+'</div>';}).join(''):'<div class="empty">История появится после первого записанного подхода.</div>';
+  html+=all.length?all.map(function(s){var sets=s.sets||[],vol=sets.reduce(function(a,x){return a+(+x.weight||0)*(+x.reps||0);},0),names={};sets.forEach(function(x){names[x.name||'Упражнение']=1;});var prev=all.find(function(p){return p.date<s.date&&p.status==='finished';}),delta=prev?vol-(prev.sets||[]).reduce(function(a,x){return a+(+x.weight||0)*(+x.reps||0);},0):0;var rating=s.status==='cancelled'?'Отменена':(s.status==='finished'?(prev?(delta>0?'↑ Силовые выросли':(delta<0?'↓ Силовые снизились':'→ Без изменений')):'Завершена'):'Не завершена');return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(s.date))+'</b><span style="font-size:12px;color:var(--muted);">'+rating+'　⌄</span></summary><div style="font-size:11px;color:var(--muted);margin:8px 0;">'+sets.length+' подходов · '+Object.keys(names).length+' упражнений · '+Math.round(vol)+' кг тоннажа'+(s.cancelReason?' · Причина: '+escapeHTML(s.cancelReason):'')+'</div>'+sets.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+' · подход '+x.set+'</div><div class="kcal">'+(x.weight?x.weight+' кг × ':'')+x.reps+'</div></div>';}).join('')+'</details>';}).join(''):'<div class="empty">История появится после первого записанного подхода.</div>';
   content.innerHTML=html;fab.innerHTML='';
   bindWorkoutFlow();bindProgressPhotos();bindExerciseHistory();bindMissedWorkout();bindWorkoutSessionClock();
   content.querySelectorAll('[data-training-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-training-date');render();};});
   var bikeBtn=document.getElementById('workoutBikeBtn');if(bikeBtn)bikeBtn.onclick=openBikeForm;
+  var measureBtn=document.getElementById('workoutAddMeasure');if(measureBtn)measureBtn.onclick=function(){openMeasureForm(null);};
+  var cancelPlanned=document.getElementById('cancelPlannedWorkout');if(cancelPlanned)cancelPlanned.onclick=function(){var reason=prompt('Почему тренировка отменена?');if(reason===null)return;reason=String(reason).trim();if(!reason){showToast('Укажи причину отмены');return;}var all=trainingJournalList();all.push({id:uid(),date:currentDate,started:Date.now(),ended:Date.now(),sets:[],plannedSets:0,completedSets:0,status:'cancelled',cancelReason:reason});sSet('trainingSessions',all.slice(-300));showToast('Отмена сохранена в истории');render();};
   var prevDay=document.getElementById('workoutPrevDay');if(prevDay)prevDay.onclick=function(){currentDate=shiftDate(currentDate,-1);render();};
   var swipeStart=null;content.ontouchstart=function(e){if(e.touches&&e.touches[0])swipeStart=e.touches[0].clientX;};content.ontouchend=function(e){if(swipeStart==null||!e.changedTouches||!e.changedTouches[0])return;var dx=e.changedTouches[0].clientX-swipeStart;swipeStart=null;if(Math.abs(dx)>85){currentDate=shiftDate(currentDate,dx<0?1:-1);render();}};
   var nextDay=document.getElementById('workoutNextDay');if(nextDay)nextDay.onclick=function(){currentDate=shiftDate(currentDate,1);render();};

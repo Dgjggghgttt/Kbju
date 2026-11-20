@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="КБЖУ v42">
-<meta name="application-version" content="42">
+<meta name="application-version" content="001">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 42</span>
+    <span class="app-build-version">ВЕРСИЯ 001</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -1418,6 +1418,15 @@ function init(){
     var c = document.getElementById('content');
     if(c) c.innerHTML = '<div class="empty">Ошибка загрузки.<br>Попробуй открыть файл через Safari.</div>';
   }
+  try{
+    var promptKey='autoImportPrompted:'+todayStr();
+    var recentHasData=[0,1,2].some(function(i){return (getDiary(shiftDate(todayStr(),-i))||[]).length>0;});
+    if(!recentHasData&&!sGet(promptKey,false)){
+      sSet(promptKey,true);
+      var importInput=document.createElement('input');importInput.type='file';importInput.accept='application/json,.json,text/plain';importInput.style.display='none';document.body.appendChild(importInput);importInput.onchange=importData;
+      if(confirm('За последние 3 дня не найдено записей питания. Импортировать резервную копию данных сейчас?'))importInput.click();
+    }
+  }catch(e){}
 }
 
 function toggleFavorite(productId){
@@ -1768,9 +1777,9 @@ function renderDiaryTab(content, fab){
   }
 
   // Тренировочный раздел вынесен в отдельную вкладку «Тренировки».
-  html += '<div class="card" style="margin-top:12px;padding:12px;"><b>🏋️ Тренировки находятся в отдельной вкладке</b><div style="font-size:12px;color:var(--muted);margin-top:4px;">План, выполнение, история и статистика — в разделе «Тренировки».</div><button class="btn primary" id="openWorkoutsTab" style="width:100%;margin-top:8px;">Открыть тренировки</button></div>';
+  html += '<button class="btn primary" id="startTodayWorkout" style="width:100%;margin:12px 0;">🏋️ Начать сегодняшнюю тренировку</button>';
   content.innerHTML = html;
-  var openWorkouts=document.getElementById('openWorkoutsTab');if(openWorkouts)openWorkouts.onclick=function(){activeTab='workouts';render();};
+  var startToday=document.getElementById('startTodayWorkout');if(startToday)startToday.onclick=function(){currentDate=todayStr();var key='workoutSession:'+currentDate,st=sGet(key,null);if(!st||!st.started||st.ended)sSet(key,{started:Date.now(),ended:null});activeTab='workouts';render();};
   bindProgressPhotos();
   bindExerciseHistory();
   bindWorkoutSessionClock();
@@ -2284,11 +2293,14 @@ function jointLoadCard(){
   return '<div class="section-title">Повторная нагрузка на суставы · 14 дней</div><div class="card"><div style="font-size:11px;color:var(--muted);margin-bottom:7px;">Грубая оценка по названиям упражнений, не диагностика и не оценка травматического риска.</div>'+rows.map(function(k){var v=counts[k],warn=v>=10;return '<div class="entry"><div class="name">'+k+'<div style="font-size:10px;color:var(--muted);">'+(warn?'Частая повторная нагрузка':(v>=6?'Умеренно часто':'Записано'))+'</div></div><div class="kcal">'+v+' занятий</div></div>';}).join('')+'</div>';
 }
 function tenPercentProjectionCard(){
-  var kg=bodyKgNow(),bf=bodyFatPercent(),lean=kg*(1-bf/100),target=lean/0.9,loss=Math.max(0,kg-target),a=avgWeightInRange(shiftDate(todayStr(),-7),shiftDate(todayStr(),-1)),b=avgWeightInRange(shiftDate(todayStr(),-28),shiftDate(todayStr(),-8)),rate=a&&b&&a.n>=3&&b.n>=3?(b.avg-a.avg)/3:null;
-  var text='При сохранении безжировой массы расчётный вес при 10% жира — около '+round(target,1)+' кг. Нужно снизить примерно '+round(loss,1)+' кг.';
-  if(rate!==null&&rate>0.05){var weeks=loss/rate;text+=' По недавнему тренду это около '+round(weeks,1)+' нед.';}else{text+=' Для прогноза срока нужны минимум 3 взвешивания за последнюю неделю и 3 за предыдущие 21 день.';}
-  return '<div class="section-title">Ориентир на 10% жира</div><div class="card"><div style="font-size:12px;line-height:1.5;">'+text+'</div><div style="font-size:10px;color:var(--muted);margin-top:6px;">Оценка условная: зависит от точности процента жира и сохранения мышечной массы. Фактический вес на 10% может отличаться.</div></div>';
+  var kg=bodyKgNow(),bf=bodyFatPercent(),lean=kg*(1-bf/100),target=lean/0.9,loss=Math.max(0,kg-target);
+  var a=avgWeightInRange(shiftDate(todayStr(),-7),shiftDate(todayStr(),-1)),b=avgWeightInRange(shiftDate(todayStr(),-28),shiftDate(todayStr(),-8));
+  var rate=a&&b&&a.n>=3&&b.n>=3?(b.avg-a.avg)/3:null,days=null;
+  if(loss<=0.05)days=0;else if(rate!==null&&rate>0.05)days=Math.ceil(loss/rate*7);
+  var date=days===null?'—':fmtDateHuman(shiftDate(todayStr(),days));
+  return '<div class="card" style="display:flex;justify-content:space-between;align-items:center;"><b>'+date+'</b><b>'+(days===null?'—':days)+' дней осталось</b></div>';
 }
+
 function exerciseEffectivenessCard(){
   var names=[],seen={};Object.keys(workoutCache).forEach(function(d){(workoutCache[d]||[]).forEach(function(w){if(w.name&&!seen[w.name]){seen[w.name]=1;names.push(w.name);}});});
   var rows=names.map(function(n){var h=exerciseSessions(n).filter(function(x){return estimatedExerciseStrength(x)>0;});if(h.length<3)return null;var recent=h.slice(-4),first=estimatedExerciseStrength(recent[0]),last=estimatedExerciseStrength(recent[recent.length-1]);return {name:n,change:first?(last/first-1)*100:0,count:recent.length};}).filter(Boolean).sort(function(a,b){return b.change-a.change;}).slice(0,5);
@@ -2300,8 +2312,8 @@ function loadRotationCard(){
   return '<div class="section-title">Повторяемость упражнений · 14 дней</div><div class="card">'+(rows.length?rows.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'</div><div class="kcal">'+x.n+' раз</div></div>';}).join(''):'<div class="empty">Пока нет завершённых тренировок.</div>')+'<div style="font-size:10px;color:var(--muted);margin-top:6px;">Показывает частоту, не предписывает обязательную ротацию. Менять упражнение стоит при боли, стойком плато или необходимости разнообразить нагрузку.</div></div>';
 }
 function consistencyCalendarCard(){
-  var cells='';for(var i=27;i>=0;i--){var d=shiftDate(todayStr(),-i),rows=getWorkouts(d)||[],done=rows.some(function(w){return !!w.done||!!(w.sets&&String(w.sets).trim());});cells+='<div title="'+d+'" style="aspect-ratio:1;border-radius:5px;background:'+(done?'var(--green)':'var(--bg)')+';border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:9px;color:'+(done?'white':'var(--muted)')+';">'+d.slice(8)+'</div>';}
-  var total=0;for(var j=0;j<28;j++){var dd=shiftDate(todayStr(),-j);if((getWorkouts(dd)||[]).some(function(w){return w.done||!!(w.sets&&String(w.sets).trim());}))total++;}
+  var cells='';for(var i=27;i>=0;i--){var d=shiftDate(todayStr(),-i),rows=getWorkouts(d)||[],journal=trainingJournalList().some(function(x){return x.date===d&&(x.sets||[]).length>0;}),done=journal||rows.some(function(w){return !!w.done||!!(w.sets&&String(w.sets).trim());});cells+='<button type="button" data-training-date="'+d+'" title="'+d+'" style="aspect-ratio:1;width:100%;padding:0;border-radius:5px;border-radius:5px;background:'+(done?'var(--green)':'var(--bg)')+';border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:9px;color:'+(done?'white':'var(--muted)')+';">'+d.slice(8)+'</button>';}
+  var total=0;for(var j=0;j<28;j++){var dd=shiftDate(todayStr(),-j);if(trainingJournalList().some(function(x){return x.date===dd&&(x.sets||[]).length>0;})||(getWorkouts(dd)||[]).some(function(w){return w.done||!!(w.sets&&String(w.sets).trim());}))total++;}
   return '<div class="section-title">Календарь тренировок · 28 дней</div><div class="card"><div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;">'+cells+'</div><div style="font-size:12px;margin-top:9px;">Тренировочных дней: <b>'+total+' из 28</b></div><div style="font-size:10px;color:var(--muted);margin-top:3px;">Зелёный — есть записанный факт тренировки.</div></div>';
 }
 function exerciseHistoryCard(){
@@ -2764,33 +2776,51 @@ function migrateLegacyTrainingJournal(){
   sSet('trainingSessions',all);sSet('trainingJournalMigratedV42',true);
 }
 function trainingJournalStats(days){
-  var from=shiftDate(todayStr(),-(days-1)),all=trainingJournalList().filter(function(s){return s.date>=from&&s.date<=todayStr();});
-  var sets=0,volume=0,ex={};
-  all.forEach(function(s){(s.sets||[]).forEach(function(x){sets++;volume+=(+x.weight||0)*(+x.reps||0);ex[x.name||'Упражнение']=1;});});
+  var from=shiftDate(todayStr(),-(days-1)),all=trainingJournalList().filter(function(s){return s.date>=from&&s.date<=todayStr()&&(s.sets||[]).length>0;});
+  var sets=0,volume=0,ex={},covered={};
+  all.forEach(function(s){covered[s.date]=true;(s.sets||[]).forEach(function(x){sets++;volume+=(+x.weight||0)*(+x.reps||0);ex[x.name||'Упражнение']=1;});});
+  // Совместимость со старыми записями плана: если журнал ещё не содержит дату,
+  // считаем только упражнения с явным фактом выполнения.
+  for(var i=0;i<days;i++){var d=shiftDate(todayStr(),-i);if(covered[d])continue;var ws=getWorkouts(d)||[],daySets=0;
+    ws.forEach(function(w){if(!w||(!w.done&&!w.sets))return;var reps=parseSetArray(w.sets||'');if(!reps.length)return;daySets+=reps.length;reps.forEach(function(r){sets++;volume+=(+w.weight||0)*r;});ex[w.name||'Упражнение']=1;});
+    if(daySets){all.push({date:d,sets:[],status:'legacy'});}
+  }
   return {sessions:all.length,sets:sets,volume:Math.round(volume),exercises:Object.keys(ex).length,items:all};
 }
+
 function renderWorkoutsTab(content,fab){
   migrateLegacyTrainingJournal();
   if(goals.workoutAuto!==false){try{prepareWorkoutsForDate(currentDate);}catch(e){}}
   var rows=getWorkouts(currentDate)||[],st=workoutFlowState(),stats=trainingJournalStats(7),all=trainingJournalList().slice().sort(function(a,b){return (b.started||0)-(a.started||0);}).slice(0,20);
+  if(rows.some(function(w){return !w.id;})){rows=rows.map(function(w){return w.id?w:Object.assign({},w,{id:uid()});});saveWorkouts(currentDate,rows);}
   var html='<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;"><button class="btn ghost" id="workoutPrevDay" style="padding:5px 11px;">‹</button><span>Тренировки · '+fmtDateHuman(currentDate)+'</span><button class="btn ghost" id="workoutNextDay" style="padding:5px 11px;">›</button></div><button class="btn ghost" id="workoutToday" style="width:100%;margin-bottom:8px;">Перейти к сегодня</button>';
+  var daySessions=trainingJournalList().filter(function(x){return x.date===currentDate&&(x.sets||[]).length>0;});
+  var dayFact=daySessions.reduce(function(a,x){return a.concat(x.sets||[]);},[]);
+  var dayFinished=daySessions.some(function(x){return x.status==='finished';});
+  if(!dayFact.length){(getWorkouts(currentDate)||[]).forEach(function(w){if(!w||(!w.done&&!w.sets))return;parseSetArray(w.sets||'').forEach(function(reps,i){dayFact.push({name:w.name,set:i+1,reps:reps,weight:+w.weight||0});});if(dayFact.length)dayFinished=true;});}
+  if(dayFact.length){
+    var byExercise={};dayFact.forEach(function(x){var n=x.name||'Упражнение';(byExercise[n]||(byExercise[n]=[])).push(x);});
+    html+='<div class="card"><b>Факт за день</b><div style="font-size:12px;color:var(--muted);margin:4px 0 8px;">'+(dayFinished?'Тренировка завершена':'Записанные подходы')+' · '+dayFact.length+' подходов</div>'+Object.keys(byExercise).map(function(n){return '<div class="entry"><div class="name">'+escapeHTML(n)+'</div><div class="kcal">'+byExercise[n].map(function(x){return (x.weight?x.weight+' кг × ':'')+x.reps;}).join(' / ')+'</div></div>';}).join('')+'</div>';
+  }else{
   html+='<div class="card"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">План на выбранный день. Фактические подходы сохраняются отдельно в журнале.</div>';
   if(rows.length){
     html+=orderWorkoutRows(rows).map(function(w){return '<div class="entry" style="flex-wrap:wrap;"><div class="name" style="flex:1;min-width:150px;">'+escapeHTML(w.name||'Упражнение')+'<div style="font-size:11px;color:var(--muted);">'+escapeHTML((w.targetWeight!=null?w.targetWeight+' кг · ':'')+(w.targetSets||w.sets||'План не задан'))+'</div></div><button class="btn ghost" data-wedit="'+escapeHTML(w.id)+'">Изменить</button><button class="btn ghost" data-wreplace="'+escapeHTML(w.id)+'">Заменить</button><button class="del" data-wdelete="'+escapeHTML(w.id)+'">✕</button></div>';}).join('');
   }else html+='<div class="empty">На этот день пока нет упражнений.</div>';
   html+='<button class="btn ghost" id="wAdd" style="width:100%;margin-top:8px;">＋ Добавить упражнение</button><button class="btn ghost" id="wSeed" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button><button class="btn ghost" id="wLibrary" style="width:100%;margin-top:6px;">База упражнений</button></div>';
+  }
   var bike=getBike(currentDate);
   html+='<div class="section-title">Кардио</div><div class="card" style="padding:10px 12px;"><div class="entry"><div class="name">🚴 Велотренажёр<div style="font-size:11px;color:var(--muted);">'+(bike?(bike.km+' км · '+round(bike.kcal)+' ккал (оценка)'):'Сегодня не записан')+'</div></div><button class="btn ghost" id="workoutBikeBtn">'+(bike?'Изменить':'Добавить')+'</button></div></div>';
   html+=workoutSessionCard();
   html+=workoutFlowCard();
   html+='<div class="section-title">Фактическая нагрузка · 7 дней</div><div class="card"><div class="entry"><div class="name">Выполнено подходов</div><div class="kcal">'+stats.sets+'</div></div><div class="entry"><div class="name">Тренировок</div><div class="kcal">'+stats.sessions+'</div></div><div class="entry"><div class="name">Упражнений</div><div class="kcal">'+stats.exercises+'</div></div><div class="entry"><div class="name">Тоннаж</div><div class="kcal">'+stats.volume.toLocaleString('ru-RU')+' кг</div></div><div style="font-size:10px;color:var(--muted);margin-top:6px;">Только фактически записанные подходы из журнала, а не запланированные.</div></div>';
-  html+=muscleRecoveryCard()+muscleDevelopmentMap()+jointLoadCard()+tenPercentProjectionCard()+exerciseEffectivenessCard()+loadRotationCard()+consistencyCalendarCard()+exerciseHistoryCard();
+  html+=renderTrainingInsights()+workoutHistoryReportCard()+muscleDevelopmentMap()+jointLoadCard()+tenPercentProjectionCard()+exerciseEffectivenessCard()+loadRotationCard()+consistencyCalendarCard()+exerciseHistoryCard();
   html+='<div class="section-title">Объём и корректировка · 4 недели</div><div class="card">'+muscleProgressByGroup()+'</div>'+volumeAdjustmentCard();
   html+=progressPhotoCard();
   html+='<div class="section-title">История тренировок</div>';
   html+=all.length?all.map(function(s){var sets=s.sets||[],vol=sets.reduce(function(a,x){return a+(+x.weight||0)*(+x.reps||0);},0),names={};sets.forEach(function(x){names[x.name||'Упражнение']=1;});return '<div class="card" style="margin-bottom:8px;"><b>'+escapeHTML(fmtDateHuman(s.date))+'</b><div style="font-size:12px;color:var(--muted);margin:4px 0;">'+(s.status==='finished'?'Завершена':'Не завершена')+' · '+sets.length+' подходов · '+Object.keys(names).length+' упражнений · '+Math.round(vol)+' кг тоннажа</div>'+sets.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+' · подход '+x.set+'</div><div class="kcal">'+(x.weight?x.weight+' кг × ':'')+x.reps+'</div></div>';}).join('')+'</div>';}).join(''):'<div class="empty">История появится после первого записанного подхода.</div>';
   content.innerHTML=html;fab.innerHTML='';
   bindWorkoutFlow();bindProgressPhotos();bindExerciseHistory();bindMissedWorkout();bindWorkoutSessionClock();
+  content.querySelectorAll('[data-training-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-training-date');render();};});
   var bikeBtn=document.getElementById('workoutBikeBtn');if(bikeBtn)bikeBtn.onclick=openBikeForm;
   var prevDay=document.getElementById('workoutPrevDay');if(prevDay)prevDay.onclick=function(){currentDate=shiftDate(currentDate,-1);render();};
   var nextDay=document.getElementById('workoutNextDay');if(nextDay)nextDay.onclick=function(){currentDate=shiftDate(currentDate,1);render();};
@@ -2826,20 +2856,7 @@ function renderProductsTab(content, fab){
   }
   content.innerHTML = `${renderTabPreferences()}<div class="section-title">Моя база продуктов (на 100 г)</div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">🥕 — сырьё (купить, чтобы потом приготовить). Остальное — готовое к еде.</div>
-    ${groupsHtml}
-    <div class="section-title">Упражнения</div>
-    <div class="card">${exercises.length ? exercises.map(function(e){
-      return `<div class="prod-row">
-        <div style="flex:1;cursor:pointer;" data-ex-progress="${e.id}">
-          <div class="pname">${escapeHTML(e.name)}</div>
-          <div class="pmacros">нажми — график прогресса</div>
-        </div>
-        <div class="prod-actions">
-          <button data-ex-del="${e.id}">✕</button>
-        </div>
-      </div>`;
-    }).join('') : '<div class="empty">Добавляются при записи тренировки</div>'}
-    <button class="btn ghost" id="addExBtn" style="width:100%;margin-top:8px;">+ Упражнение в базу</button></div>`;
+    ${groupsHtml}`;
   content.querySelectorAll('[data-tab-visible]').forEach(function(el){el.onchange=function(){var k=el.dataset.tabVisible;if(el.checked)tabPreferences.hidden=tabPreferences.hidden.filter(function(x){return x!==k;});else{if(tabPreferences.order.filter(function(x){return x!==k&&tabPreferences.hidden.indexOf(x)<0;}).length===0){el.checked=true;showToast('Нельзя скрыть все вкладки');return;}if(activeTab===k)activeTab='diary';tabPreferences.hidden.push(k);}saveTabPreferences();applyTabPreferences();render();};});
   content.querySelectorAll('[data-tab-up]').forEach(function(b){b.onclick=function(){var i=+b.dataset.tabUp;if(i>0){var a=tabPreferences.order.splice(i,1)[0];tabPreferences.order.splice(i-1,0,a);saveTabPreferences();render();applyTabPreferences();}};});
   content.querySelectorAll('[data-tab-down]').forEach(function(b){b.onclick=function(){var i=+b.dataset.tabDown;if(i<tabPreferences.order.length-1){var a=tabPreferences.order.splice(i,1)[0];tabPreferences.order.splice(i+1,0,a);saveTabPreferences();render();applyTabPreferences();}};});
@@ -2849,40 +2866,6 @@ function renderProductsTab(content, fab){
     sSet('products', products);
     render();
   });
-  content.querySelectorAll('[data-ex-progress]').forEach(function(el){
-    el.onclick = function(){
-      var ex = exercises.find(function(e){ return e.id===el.dataset.exProgress; });
-      if(ex) openExerciseProgress(ex.name);
-    };
-  });
-  content.querySelectorAll('[data-ex-del]').forEach(function(b){
-    b.onclick = function(ev){
-      ev.stopPropagation();
-      exercises = exercises.filter(function(e){ return e.id!==b.dataset.exDel; });
-      sSet('exercises', exercises);
-      render();
-    };
-  });
-  document.getElementById('addExBtn').onclick = function(){
-    var root = document.getElementById('modalRoot');
-    root.innerHTML = `<div class="overlay" id="ov"><div class="sheet">
-      <h2>Новое упражнение</h2>
-      <div class="field"><label>Название</label><input id="exName" placeholder="Жим лёжа"></div>
-      <div class="sheet-actions">
-        <button class="btn ghost" id="cancelBtn">Отмена</button>
-        <button class="btn primary" id="saveBtn">Сохранить</button>
-      </div>
-    </div></div>`;
-    document.getElementById('cancelBtn').onclick = closeModal;
-    document.getElementById('ov').onclick = function(e){ if(e.target.id==='ov') closeModal(); };
-    document.getElementById('saveBtn').onclick = function(){
-      var n = (document.getElementById('exName').value||'').trim();
-      if(!n){ showToast('Укажи название'); return; }
-      ensureExerciseInLibrary(n);
-      closeModal();
-      render();
-    };
-  };
   fab.innerHTML = `<button id="addProdBtn">+ Продукт</button><button id="addRecipeBtn" style="margin-left:8px;background:var(--card);color:var(--text);border:1px solid var(--border);">+ Рецепт</button>`;
   document.getElementById('addProdBtn').onclick = ()=>openProductForm(null);
   document.getElementById('addRecipeBtn').onclick = ()=>openRecipeForm(null);
@@ -3872,7 +3855,6 @@ function renderTrainingInsights(){
     '<div class="entry"><div class="name">Распределение недельного объёма<div style="font-size:11px;color:var(--muted)">Ориентир по группам: 8 эффективных подходов</div></div><div class="kcal" style="font-size:11px;max-width:55%;text-align:right">'+weeklySetDistribution()+'</div></div>'+
     '<div class="entry"><div class="name">Слабое звено по объёму<div style="font-size:11px;color:var(--muted)">Автоматический поиск среди отслеживаемых мышц</div></div><div class="kcal" style="font-size:11px;max-width:58%;white-space:normal;text-align:right">'+trainingWeakLink()+'</div></div>'+
     '<div class="entry"><div class="name">Контроль роста объёма за 28 дней<div style="font-size:11px;color:var(--muted)">Сравнение с предыдущими 28 днями</div></div><div class="kcal" style="font-size:11px;max-width:55%;text-align:right">'+muscleVolume28().filter(function(x){return x.change!=null&&x.change>20;}).map(function(x){return x.name+' +'+round(x.change)+'%';}).join(' · ')+' '+(muscleVolume28().some(function(x){return x.change!=null&&x.change>20;})?'— рост выше 20%, не спеши добавлять подходы':'— резкого роста не выявлено')+'</div></div>'+
-    '<div style="font-size:12px;font-weight:700;border-top:1px solid var(--line);padding-top:8px;margin-top:8px">Восстановление мышц</div>'+muscleRecoverySnapshot().map(function(x){return '<div class="entry"><div class="name">'+x.name+'<div style="font-size:11px;color:var(--muted)">'+x.status+'</div></div><div class="kcal" style="font-size:11px">'+(x.note||'ок')+'</div></div>';}).join('')+
    (lines?lines:'<div class="empty">Пока нет завершённых тренировок с подходами</div>')+
     '</div>';
 }
@@ -3985,8 +3967,6 @@ function renderReportTab(content, fab){
     <div class="section-title">Динамика веса</div><div class="card"><div class="entry"><div class="name">Изменение средней массы за неделю</div><div class="kcal">${paceSummary}</div></div></div>
 
     ${weightPaceCard()}
-    ${trainingInsightsHtml}
-    ${workoutHistoryReportCard()}
 
     ${plateauHtml}
     <div class="section-title">По дням</div>
@@ -4009,19 +3989,6 @@ function renderReportTab(content, fab){
         ? `<div class="entry"><div class="name">Изменение за период записей</div><div class="kcal">${wDelta>0?'+':''}${wDelta} кг</div></div>`
         : '<div class="empty">Недостаточно данных о весе</div>'}
     </div>
-    <div class="section-title">Замеры тела · динамика</div><div class="card">${bodyMeasurementTrendHtml()}</div>
-    <div class="section-title">Сохранение мышц · контроль динамики</div>
-    <div class="card">${(function(){
-      var ms = (measureLog||[]).slice().sort(function(a,b){return a.date.localeCompare(b.date);});
-      var latest = ms.length ? ms[ms.length-1] : null;
-      var prev = ms.length>1 ? ms[ms.length-2] : null;
-      function metric(k,label){
-        if(!latest || latest[k]==null || latest[k]==='') return '';
-        var d = prev && prev[k]!=null && prev[k]!=='' ? round(+latest[k]-(+prev[k])) : null;
-        return '<div class="entry"><div class="name">'+label+'</div><div class="kcal">'+latest[k]+' см'+(d!==null?' <span style="font-size:11px;color:var(--muted);">('+(d>0?'+':'')+d+')</span>':'')+'</div></div>';
-      }
-      return latest ? '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Последние замеры · '+fmtDateHuman(latest.date)+'</div>'+metric('waist','Талия')+metric('bicepL','Левая рука')+metric('bicepR','Правая рука')+metric('chest','Грудь') : '<div class="empty">Добавь замеры талии и рук во вкладке веса. Силовые показатели смотри в блоке тренировок выше.</div>';
-    })()}</div>
     <div class="section-title">Дневная цель (нажми, чтобы изменить)</div>
     <div class="card" id="goalsCard">
       <div class="entry"><div class="name">Калории</div><div class="kcal">${reportGoal.kcal}</div></div>
@@ -4031,9 +3998,7 @@ function renderReportTab(content, fab){
 
     <div class="section-title">Данные</div>
     <div class="card">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">${escapeHTML(_idbStatus)}</div><button class="btn ghost" id="flushDbBtn" style="width:100%;margin-bottom:10px;">Проверить сохранение</button>
       <button class="btn primary" id="exportBtn" style="width:100%;margin-bottom:10px;">Экспорт резервной копии JSON</button>
-      <button class="btn ghost" id="exportCsvBtn" style="width:100%;margin-bottom:10px;">Экспорт таблиц CSV</button>
       <button class="btn ghost" id="importBtn" style="width:100%;">Импорт данных</button>
       <input type="file" id="importFile" accept="application/json,.json,text/plain" style="display:none">
     </div>`;
@@ -4046,10 +4011,8 @@ function renderReportTab(content, fab){
   });
   var goalsCard = document.getElementById('goalsCard');
   if(goalsCard) goalsCard.onclick = openGoalsForm;
-  var flushDbBtn=document.getElementById('flushDbBtn');if(flushDbBtn)flushDbBtn.onclick=async function(){await flushIndexedDB();showToast(_idbStatus.indexOf('Ошибка')===0?'Есть ошибка сохранения — сделай JSON-копию':'Очередь сохранения обработана');};
   var exportBtn = document.getElementById('exportBtn');
   if(exportBtn) exportBtn.onclick = exportData;
-  var exportCsvBtn=document.getElementById('exportCsvBtn');if(exportCsvBtn)exportCsvBtn.onclick=exportCSV;
   var importBtn = document.getElementById('importBtn');
   var importFile = document.getElementById('importFile');
   if(importBtn && importFile){
@@ -4149,7 +4112,7 @@ function collectAllData(){
   try{if(_storageOk){for(var ri=0;ri<localStorage.length;ri++){var rk=localStorage.key(ri);if(rk&&rk.indexOf('recovery:')===0){var rd=rk.slice(9);try{recovery[rd]=JSON.parse(localStorage.getItem(rk));}catch(e){}}}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('recovery:')===0&&!recovery[k.slice(9)])recovery[k.slice(9)]=_memStore[k];});
   return {
-    version: 9, appVersion: 42,
+    version: 9, appVersion: 1,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,

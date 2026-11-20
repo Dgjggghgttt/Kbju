@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="КБЖУ v42">
-<meta name="application-version" content="001">
+<meta name="application-version" content="002">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 001</span>
+    <span class="app-build-version">ВЕРСИЯ 002</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -1423,10 +1423,11 @@ function init(){
     var recentHasData=[0,1,2].some(function(i){return (getDiary(shiftDate(todayStr(),-i))||[]).length>0;});
     if(!recentHasData&&!sGet(promptKey,false)){
       sSet(promptKey,true);
-      var importInput=document.createElement('input');importInput.type='file';importInput.accept='application/json,.json,text/plain';importInput.style.display='none';document.body.appendChild(importInput);importInput.onchange=importData;
-      if(confirm('За последние 3 дня не найдено записей питания. Импортировать резервную копию данных сейчас?'))importInput.click();
+      // iOS Safari blocks file-picker clicks that are not triggered by a user gesture.
+      // Open our import sheet automatically; the visible button opens the native picker.
+      openMissingDataImportPrompt();
     }
-  }catch(e){}
+  }catch(e){console.warn('Auto import prompt failed',e);}
 }
 
 function toggleFavorite(productId){
@@ -2218,39 +2219,28 @@ function exerciseReplacementOptions(m){
   return all.map(function(x){return x.name;});
 }
 
-function replaceWorkoutExercise(id){
-  var date=currentDate;
-  var list=getWorkouts(date)||[],idx=list.findIndex(function(w){return String(w.id)===String(id);});
-  if(idx<0){showToast('Не удалось найти упражнение');return;}
+function replaceWorkoutExercise(identifier){
+  var date=currentDate,list=(getWorkouts(date)||[]).slice();
+  var idx=Number.isInteger(identifier)?identifier:list.findIndex(function(w){return String(w.id)===String(identifier);});
+  if(idx<0||idx>=list.length){showToast('Не удалось найти упражнение');return;}
   var current=list[idx],muscle=exercisePrimaryMuscle(current.name||''),choices=exerciseReplacementOptions(muscle).filter(function(x){return x!==current.name;});
   var src=String(current.name||'').toLowerCase(),sameGear=/(штанг)/.test(src)?'штанга':(/гантел/.test(src)?'гантели':(/подтяг/.test(src)?'турник':'собственный вес'));
   choices.sort(function(a,b){function score(x){var n=x.toLowerCase(),sc=0;if(sameGear==='штанга'&&/штанг/.test(n))sc+=3;if(sameGear==='гантели'&&/гантел/.test(n))sc+=3;if(sameGear==='турник'&&/подтяг/.test(n))sc+=3;if(sameGear==='собственный вес'&&/отжим|негатив/.test(n))sc+=2;return sc;}return score(b)-score(a);});
   var root=document.getElementById('modalRoot');
-  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>Аналогичная замена</h2><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">'+escapeHTML(muscle)+' · сначала варианты с похожим оборудованием ('+sameGear+')</div>'+choices.map(function(x,i){return '<button type="button" class="btn ghost" data-rep-index="'+i+'" style="width:100%;text-align:left;margin:4px 0;padding:12px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;">'+escapeHTML(x)+(i===0?' · ближе всего по оборудованию':'')+'</button>';}).join('')+'<button type="button" class="btn ghost" id="cancelReplace" style="width:100%;margin-top:8px;">Отмена</button></div></div>';
-  // Bind each button directly: iOS Safari can lose delegated taps when modal content is replaced.
-  root.querySelectorAll('[data-rep-index]').forEach(function(btn){
-    var applyChoice=function(ev){
-      if(ev){ev.preventDefault();ev.stopPropagation();}
-      var pick=Number(btn.getAttribute('data-rep-index')),name=choices[pick];
-      if(!Number.isInteger(pick)||!name)return;
-      var latest=(getWorkouts(date)||[]).slice();
-      var liveIdx=latest.findIndex(function(w){return String(w.id)===String(id);});
-      if(liveIdx<0){showToast('Упражнение не найдено — обнови список');closeModal();render();return;}
-      var oldName=latest[liveIdx].name;
-      latest[liveIdx]=Object.assign({},latest[liveIdx],{name:name,weight:null,sets:'',done:false,planned:true,targetWeight:null,targetSets:latest[liveIdx].targetSets||'3x10',advice:'Аналогичная замена. Начни с лёгкого веса и подбери нагрузку заново.'});
-      saveWorkouts(date,latest);
-      var flow=sGet(workoutFlowKey(date),null);if(flow&&flow.status!=='finished'&&Array.isArray(flow.queue)){flow.queue.forEach(function(q){if(String(q.id)===String(id)){q.name=name;q.actualReps=null;}});flow.completed=flow.queue.filter(function(q){return q.actualReps!=null;}).length;sSet(workoutFlowKey(date),flow);}
-      var check=(getWorkouts(date)||[]).find(function(w){return String(w.id)===String(id);});
-      if(!check||check.name!==name){showToast('Не удалось сохранить замену');return;}
-      closeModal();
-      render();
-      showToast(oldName+' → '+name);
-    };
-    btn.addEventListener('click',applyChoice,false);
-  });
-  var browse=document.getElementById('browseExerciseCatalog');if(browse)browse.onclick=function(){openExerciseCatalog();};
+  if(!choices.length){showToast('Нет вариантов замены для этой группы мышц');return;}
+  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>Аналогичная замена</h2><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">'+escapeHTML(muscle)+' · сначала варианты с похожим оборудованием ('+sameGear+')</div>'+choices.map(function(x,i){return '<button type="button" class="btn ghost" data-rep-index="'+i+'" style="width:100%;text-align:left;margin:4px 0;padding:12px;touch-action:manipulation;">'+escapeHTML(x)+(i===0?' · ближе всего по оборудованию':'')+'</button>';}).join('')+'<button type="button" class="btn ghost" id="cancelReplace" style="width:100%;margin-top:8px;">Отмена</button></div></div>';
+  root.querySelectorAll('[data-rep-index]').forEach(function(btn){btn.addEventListener('click',function(ev){
+    ev.preventDefault();ev.stopPropagation();var pick=Number(btn.getAttribute('data-rep-index')),name=choices[pick];if(!name)return;
+    var latest=(getWorkouts(date)||[]).slice();if(idx>=latest.length){showToast('Список упражнений изменился — обнови экран');closeModal();render();return;}
+    var oldName=latest[idx].name;latest[idx]=Object.assign({},latest[idx],{id:latest[idx].id||uid(),name:name,weight:null,sets:'',done:false,planned:true,targetWeight:null,targetSets:latest[idx].targetSets||'3x10',advice:'Аналогичная замена. Начни с лёгкого веса и подбери нагрузку заново.'});
+    saveWorkouts(date,latest);
+    var flow=sGet(workoutFlowKey(date),null);if(flow&&flow.status!=='finished'&&Array.isArray(flow.queue)){flow.queue.forEach(function(q){if(String(q.id)===String(current.id)){q.name=name;q.actualReps=null;}});flow.completed=flow.queue.filter(function(q){return q.actualReps!=null;}).length;sSet(workoutFlowKey(date),flow);}
+    var check=(getWorkouts(date)||[])[idx];if(!check||check.name!==name){showToast('Не удалось сохранить замену');return;}
+    closeModal();render();showToast(oldName+' → '+name);
+  },false);});
   var cancel=document.getElementById('cancelReplace');if(cancel)cancel.onclick=closeModal;
   var overlay=document.getElementById('ov');if(overlay)overlay.onclick=function(e){if(e.target===overlay)closeModal();};
+  activateModal();
 }
 
 function exerciseEfficiencySummary(hist){
@@ -2804,7 +2794,7 @@ function renderWorkoutsTab(content,fab){
   }else{
   html+='<div class="card"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">План на выбранный день. Фактические подходы сохраняются отдельно в журнале.</div>';
   if(rows.length){
-    html+=orderWorkoutRows(rows).map(function(w){return '<div class="entry" style="flex-wrap:wrap;"><div class="name" style="flex:1;min-width:150px;">'+escapeHTML(w.name||'Упражнение')+'<div style="font-size:11px;color:var(--muted);">'+escapeHTML((w.targetWeight!=null?w.targetWeight+' кг · ':'')+(w.targetSets||w.sets||'План не задан'))+'</div></div><button class="btn ghost" data-wedit="'+escapeHTML(w.id)+'">Изменить</button><button class="btn ghost" data-wreplace="'+escapeHTML(w.id)+'">Заменить</button><button class="del" data-wdelete="'+escapeHTML(w.id)+'">✕</button></div>';}).join('');
+    html+=orderWorkoutRows(rows).map(function(w,i){var realIndex=rows.indexOf(w);return '<div class="entry" style="flex-wrap:wrap;"><div class="name" style="flex:1;min-width:150px;">'+escapeHTML(w.name||'Упражнение')+'<div style="font-size:11px;color:var(--muted);">'+escapeHTML((w.targetWeight!=null?w.targetWeight+' кг · ':'')+(w.targetSets||w.sets||'План не задан'))+'</div></div><button class="btn ghost" data-wedit-index="'+realIndex+'">Изменить</button><button class="btn ghost" data-wreplace-index="'+realIndex+'">Заменить</button><button class="del" data-wdelete-index="'+realIndex+'">✕</button></div>';}).join('');
   }else html+='<div class="empty">На этот день пока нет упражнений.</div>';
   html+='<button class="btn ghost" id="wAdd" style="width:100%;margin-top:8px;">＋ Добавить упражнение</button><button class="btn ghost" id="wSeed" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button><button class="btn ghost" id="wLibrary" style="width:100%;margin-top:6px;">База упражнений</button></div>';
   }
@@ -2828,9 +2818,9 @@ function renderWorkoutsTab(content,fab){
   var add=document.getElementById('wAdd');if(add)add.onclick=function(){openWorkoutForm(null);};
   var seed=document.getElementById('wSeed');if(seed)seed.onclick=function(){if(getWorkouts(currentDate).length){showToast('План уже заполнен');return;}autoSeedWorkoutsForDate(currentDate,true);render();};
   var lib=document.getElementById('wLibrary');if(lib)lib.onclick=openExerciseCatalog;
-  content.querySelectorAll('[data-wedit]').forEach(function(b){b.onclick=function(){var w=getWorkouts(currentDate).find(function(x){return String(x.id)===String(b.dataset.wedit);});if(w)openWorkoutForm(w);};});
-  content.querySelectorAll('[data-wreplace]').forEach(function(b){b.onclick=function(){replaceWorkoutExercise(b.dataset.wreplace);};});
-  content.querySelectorAll('[data-wdelete]').forEach(function(b){b.onclick=function(){if(!confirm('Удалить упражнение из плана?'))return;saveWorkouts(currentDate,getWorkouts(currentDate).filter(function(w){return String(w.id)!==String(b.dataset.wdelete);}));render();};});
+  content.querySelectorAll('[data-wedit-index]').forEach(function(b){b.onclick=function(){var i=Number(b.getAttribute('data-wedit-index')),w=getWorkouts(currentDate)[i];if(w)openWorkoutForm(w);};});
+  content.querySelectorAll('[data-wreplace-index]').forEach(function(b){b.onclick=function(){replaceWorkoutExercise(Number(b.getAttribute('data-wreplace-index')));};});
+  content.querySelectorAll('[data-wdelete-index]').forEach(function(b){b.onclick=function(){var i=Number(b.getAttribute('data-wdelete-index')),date=currentDate,list=(getWorkouts(date)||[]).slice();if(!Number.isInteger(i)||i<0||i>=list.length)return;var name=list[i].name||'это упражнение',root=document.getElementById('modalRoot');root.innerHTML='<div class="overlay" id="deleteWorkoutOverlay"><div class="sheet"><h2>Удалить упражнение?</h2><div style="font-size:13px;margin:8px 0 14px;">'+escapeHTML(name)+'</div><button type="button" class="btn primary" id="confirmWorkoutDelete" style="width:100%;">Удалить</button><button type="button" class="btn ghost" id="cancelWorkoutDelete" style="width:100%;margin-top:8px;">Отмена</button></div></div>';document.getElementById('confirmWorkoutDelete').onclick=function(){var latest=(getWorkouts(date)||[]).slice();if(i>=latest.length){closeModal();render();return;}latest.splice(i,1);saveWorkouts(date,latest);closeModal();render();showToast('Упражнение удалено');};document.getElementById('cancelWorkoutDelete').onclick=closeModal;var ov=document.getElementById('deleteWorkoutOverlay');ov.onclick=function(e){if(e.target===ov)closeModal();};activateModal();};});
   var open=document.getElementById('openWorkoutsTab');if(open)open.onclick=function(){activeTab='workouts';render();};
 }
 function renderProductsTab(content, fab){
@@ -4194,6 +4184,17 @@ async function exportCSV(){
     var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kbju_export-v42-'+todayStr()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
     showToast('CSV-файл подготовлен');
   }catch(e){showToast('Ошибка CSV-экспорта');}
+}
+
+function openMissingDataImportPrompt(){
+  var root=document.getElementById('modalRoot');if(!root)return;
+  root.innerHTML='<div class="overlay" id="missingImportOverlay"><div class="sheet"><h2>Нет записей за последние 3 дня</h2><div style="font-size:13px;line-height:1.45;color:var(--muted);margin:8px 0 14px;">Чтобы восстановить дневник, выбери ранее сохранённую резервную копию JSON.</div><input id="missingImportFile" type="file" accept="application/json,.json,text/plain" style="display:none"><button type="button" class="btn primary" id="missingImportChoose" style="width:100%;">Выбрать файл резервной копии</button><button type="button" class="btn ghost" id="missingImportLater" style="width:100%;margin-top:8px;">Позже</button></div></div>';
+  var input=document.getElementById('missingImportFile'),choose=document.getElementById('missingImportChoose'),later=document.getElementById('missingImportLater');
+  if(choose&&input)choose.addEventListener('click',function(){input.click();});
+  if(input)input.addEventListener('change',function(ev){if(ev.target.files&&ev.target.files.length){closeModal();importData(ev);}});
+  if(later)later.onclick=closeModal;
+  var overlay=document.getElementById('missingImportOverlay');if(overlay)overlay.onclick=function(e){if(e.target===overlay)closeModal();};
+  activateModal();
 }
 
 function importData(ev){

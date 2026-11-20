@@ -1985,7 +1985,7 @@ function openWorkoutForm(existing){
           <input type="text" id="woSearch" placeholder="Поиск или новое название…" value="${escapeHTML(selectedEx ? selectedEx.name : '')}">
         </div>
         <div class="search-list" id="woResults" style="max-height:140px;"></div>
-        <div class="field" style="margin-top:10px;"><label>Факт: вес, кг</label><input id="woWeight" type="number" inputmode="decimal" step="0.5" placeholder="13" value="${factW}"></div>
+        <div class="field" style="margin-top:10px;"><label>Факт: вес, кг</label><input id="woWeight" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" pattern="[0-9]*[.,]?[0-9]*" step="0.5" placeholder="13" value="${factW}"></div>
         <div class="field"><label>Факт: подходы / повторы</label><input id="woSets" type="text" placeholder="20/20/15" value="${factS}"></div>
         <details style="margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;">
           <summary style="font-size:13px;font-weight:600;cursor:pointer;">Дополнительно (необязательно)</summary>
@@ -4553,7 +4553,7 @@ function openAddEntry(existing){
           <div class="search-list" id="searchResults"></div>
           <div class="field" style="margin-top:12px;">
             <label id="amountLabel">Граммы</label>
-            <input type="number" id="gramsInput" inputmode="decimal" placeholder="150" value="${existing && !existing.custom ? (existing.grams||'') : ''}">
+            <input type="text" id="gramsInput" inputmode="decimal" enterkeyhint="done" autocomplete="off" pattern="[0-9]*[.,]?[0-9]*" placeholder="150" value="${existing && !existing.custom ? (existing.grams||'') : ''}">
             <div id="unitToggle" style="display:none;gap:6px;margin-top:8px;">
               <button type="button" class="btn primary" id="unitGrams" style="flex:1;padding:8px;font-size:12px;">Граммы</button>
               <button type="button" class="btn ghost" id="unitPortions" style="flex:1;padding:8px;font-size:12px;">Порции</button>

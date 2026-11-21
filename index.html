@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="КБЖУ v44">
-<meta name="application-version" content="1">
+<meta name="application-version" content="2">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 1</span>
+    <span class="app-build-version">ВЕРСИЯ 2</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -766,7 +766,9 @@ function suggestNextSession(last, name){
 function exerciseMatchKey(name){
   var n = (name||'').toLowerCase().replace(/[ё]/g,'е').replace(/[^а-яa-z0-9]+/g,' ').trim();
   if(/подтяг/.test(n)) return 'pullup';
-  if(/жим/.test(n) && /(полу|пол|floor)/.test(n)) return 'floorpress';
+  if(/жим/.test(n) && /гантел/.test(n) && /(леж|полу|пол|floor)/.test(n)) return 'floorpress_dumbbell';
+  if(/жим/.test(n) && /штанг/.test(n) && /(леж|полу|пол|floor)/.test(n)) return 'floorpress_barbell';
+  if(/жим/.test(n) && /(полу|пол|floor)/.test(n)) return 'floorpress_other';
   if(/жим/.test(n) && /(стоя|вверх|плеч)/.test(n)) return 'overheadpress';
   if(/сгиб|подъем|подьем/.test(n) && /штанг/.test(n)) return 'barbellcurl';
   if(/молот/.test(n)) return 'hammercurl';
@@ -847,6 +849,18 @@ function feedbackAfterSession(done, target){
 }
 
 /** План на одно упражнение шаблона: по последней реальной сессии, иначе стартовые значения */
+function exerciseReplacementMap(){
+  var map=sGet('exerciseReplacements',{});return map&&typeof map==='object'?map:{};
+}
+function resolveExerciseReplacement(name){
+  var map=exerciseReplacementMap(),key=String(name||'').toLowerCase().replace(/[ё]/g,'е').trim();
+  return map[key]||name;
+}
+function rememberExerciseReplacement(oldName,newName){
+  var map=exerciseReplacementMap(),key=String(oldName||'').toLowerCase().replace(/[ё]/g,'е').trim();
+  if(key&&newName){map[key]=newName;sSet('exerciseReplacements',map);}
+}
+
 function planForExercise(item, date){
   var last = getLastRealSession(item.name, date);
   var next = null, fromDate = null, startNote = '';
@@ -908,10 +922,11 @@ function isAutoEmptyRow(w){
 function buildTemplateRows(code, date, manual){
   var tpl = WORKOUT_TEMPLATES[code] || [];
   return tpl.map(function(item){
-    var nx = planForExercise(item, date);
+    var plannedItem=Object.assign({},item,{name:resolveExerciseReplacement(item.name)});
+    var nx = planForExercise(plannedItem, date);
     return {
       id: uid(),
-      name: item.name,
+      name: plannedItem.name,
       weight: nx.weight,
       sets: '',
       targetWeight: nx.weight,
@@ -956,6 +971,20 @@ function prepareWorkoutsForDate(date){
     return;
   }
   if(date < today) return; // прошлое не трогаем
+  var replacementsChanged=false;
+  list.forEach(function(w){
+    if(!w || w.done || !w.planned) return;
+    var replacement=resolveExerciseReplacement(w.name);
+    if(replacement===w.name) return;
+    w.name=replacement;
+    var tplItem=(WORKOUT_TEMPLATES[code]||[]).find(function(t){return resolveExerciseReplacement(t.name)===replacement;});
+    if(tplItem){
+      var item=Object.assign({},tplItem,{name:replacement}),nx=planForExercise(item,date);
+      w.weight=nx.weight;w.targetWeight=nx.weight;w.targetSets=nx.sets;w.advice=nx.text;w.fromDate=nx.fromDate||null;
+    } else {w.weight=null;w.targetWeight=null;w.sets='';w.targetSets=w.targetSets||'3x10';w.advice='Замена упражнения. Цель рассчитана по последним результатам именно этого упражнения.';}
+    replacementsChanged=true;
+  });
+  if(replacementsChanged) saveWorkouts(date,list);
   if(isPlanCustom(date)) return; // пользователь менял/удалял упражнения — не пересоздаём план
 
   // Пусто → создаём план по шаблону дня
@@ -2246,7 +2275,7 @@ function replaceWorkoutExercise(identifier){
   root.querySelectorAll('[data-rep-index]').forEach(function(btn){btn.addEventListener('click',function(ev){
     ev.preventDefault();ev.stopPropagation();var pick=Number(btn.getAttribute('data-rep-index')),name=choices[pick];if(!name)return;
     var latest=(getWorkouts(date)||[]).slice();if(idx>=latest.length){showToast('Список упражнений изменился — обнови экран');closeModal();render();return;}
-    var oldName=latest[idx].name;latest[idx]=Object.assign({},latest[idx],{id:latest[idx].id||uid(),name:name,auto:false,manual:true,fromDate:null,tpl:null,weight:null,sets:'',done:false,planned:true,targetWeight:null,targetSets:latest[idx].targetSets||'3x10',advice:'Аналогичная замена. Начни с лёгкого веса и подбери нагрузку заново.'});
+    var oldName=latest[idx].name;rememberExerciseReplacement(oldName,name);latest[idx]=Object.assign({},latest[idx],{id:latest[idx].id||uid(),name:name,auto:false,manual:true,fromDate:null,tpl:null,weight:null,sets:'',done:false,planned:true,targetWeight:null,targetSets:latest[idx].targetSets||'3x10',advice:'Аналогичная замена. Начни с лёгкого веса и подбери нагрузку заново.'});
     markPlanCustom(date);saveWorkouts(date,latest);
     var flow=sGet(workoutFlowKey(date),null);if(flow&&flow.status!=='finished'&&Array.isArray(flow.queue)){flow.queue.forEach(function(q){if(String(q.id)===String(current.id)){q.name=name;q.actualReps=null;}});flow.completed=flow.queue.filter(function(q){return q.actualReps!=null;}).length;sSet(workoutFlowKey(date),flow);}
     var check=(getWorkouts(date)||[])[idx];if(!check||check.name!==name){showToast('Не удалось сохранить замену');return;}

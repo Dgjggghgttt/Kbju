@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v3</title>
+<title>КБЖУ — дневник v4</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v3">
-<meta name="application-version" content="3">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v4">
+<meta name="application-version" content="4">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 34">
+  <div class="app-build-tag" aria-label="Версия приложения 4">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 3</span>
+    <span class="app-build-version">ВЕРСИЯ 4</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -308,7 +308,7 @@ var goals = {
   kcal: 1500, protein: 154, fat: 50, carbs: 108,
   trainKcal: 1500, trainProtein: 154, trainFat: 50, trainCarbs: 108,
   targetWeight: null, maintenanceKcal: 2000,
-  fiberTarget: 28,
+  fiberTarget: 28, sugarTarget:50, saltTarget:5, satFatTarget:20, waterTarget:2500,
   vegFruitTarget: 500,
   smartAdjust: false, // спокойный режим: одна норма, без автоурезки
   autoFromWeight: false, // автоцели: −0.5 кг/нед от поддержания
@@ -319,6 +319,8 @@ var goals = {
 var dayTemplate = null; // {entries: simplified[]}
 var mealTemplates = []; // legacy storage; UI удалён
 var weightLog = [];
+var waterLog = {}; // date -> ml
+var equipmentConfig = {barbell:{bar:3,plates:[{weight:5,pairs:1},{weight:2.5,pairs:2},{weight:1.25,pairs:1},{weight:0.5,pairs:1}]},dumbbell:{handle:1.5,plates:[]}};
 var measureLog = []; // {id, date, neck, waist, chest, bicepL, bicepR}
 var creatineLog = {}; // date -> true
 var workoutCache = {}; // date -> [{id, name, weight, sets}]
@@ -717,7 +719,7 @@ function recentTrainingFatigue(){
 }
 
 /** Минимальный шаг веса по инвентарю: блины 1,25 / 2,5 / 3 кг. Гантели: 1 блин 1,25 на гантель; штанга: 1,25 на сторону = 2,5 кг */
-function weightStepFor(name){ return /гантел|молот/i.test(String(name||'')) ? 1.25 : 2.5; }
+function weightStepFor(name){var cfg=/гантел|молот/i.test(String(name||''))?equipmentConfig.dumbbell:equipmentConfig.barbell,plates=(cfg&&cfg.plates||[]).filter(function(x){return +x.weight>0&&+x.pairs>0;});return plates.length?Math.min.apply(null,plates.map(function(x){return +x.weight;}))*2:(/гантел|молот/i.test(String(name||''))?1.25:2.5);}
 
 function suggestNextSession(last, name){
   if(!last) return null;
@@ -752,7 +754,7 @@ function suggestNextSession(last, name){
   if(minRep >= 12 && (minRir == null || minRir >= 2)){
     var currentW = Number(last.weight);
     var step = weightStepFor(name || last.name), isDb = step < 2;
-    var nextW = Math.round((currentW + step) * 100) / 100;
+    var nextW = equipmentSnapWeight(name||last.name,Math.round((currentW + step) * 100) / 100);if(nextW<=currentW){return {weight:currentW,sets:sets.join('/'),text:'По текущему набору блинов следующий шаг нагрузки недоступен. Проверь настройки оборудования.'};}
     var estimated = currentW * (1 + minRep/30);
     var nextRep = Math.floor((estimated / nextW - 1) * 30);
     nextRep = Math.max(isDb ? 6 : 8, Math.min(12, nextRep));
@@ -883,6 +885,7 @@ function planForExercise(item, date){
     };
     fromDate = last ? last.date : null;
   }
+  if(next.weight!=null&&!isBodyweightName(item.name))next.weight=equipmentSnapWeight(item.name,+next.weight);
   var fitted = fitSets(next.sets, item.n);
   var recentLoad=weeklyMuscleLoadBefore(date,7), prof=exerciseMuscleProfile(item.name);
   var overloaded=prof.primary.some(function(m){return (recentLoad[m]||0)>=16;});
@@ -1263,6 +1266,9 @@ function snapshotFromProduct(p, grams){
     fat: (p.fat||0)*f,
     carbs: (p.carbs||0)*f,
     fiber: (p.fiber||0)*f,
+    sugar:p.sugar==null?null:(+p.sugar||0)*f, salt:p.salt==null?null:(+p.salt||0)*f, satFat:p.satFat==null?null:(+p.satFat||0)*f,
+    carbsSimple:p.sugar==null?null:(+p.sugar||0)*f, carbsComplex:p.sugar==null?null:Math.max(0,((p.carbs||0)-(p.fiber||0)-(p.sugar||0))*f),
+    micronutrients:Object.fromEntries(Object.entries(p.micronutrients||{}).map(function(kv){return [kv[0],(+kv[1]||0)*f];})),
     foodGroup: grp
   };
 }
@@ -1277,7 +1283,7 @@ function entryMacros(e){
       protein: e.protein||0,
       fat: e.fat||0,
       carbs: e.carbs||0,
-      fiber: e.fiber||0,
+      fiber: e.fiber||0, sugar:e.sugar==null?null:e.sugar, salt:e.salt==null?null:e.salt, satFat:e.satFat==null?null:e.satFat, carbsSimple:e.carbsSimple==null?null:e.carbsSimple, carbsComplex:e.carbsComplex==null?null:e.carbsComplex, micronutrients:e.micronutrients||{},
       vegGrams: cg === 'veg' ? gms : 0,
       fruitGrams: cg === 'fruit' ? gms : 0,
       foodGroup: cg
@@ -1294,7 +1300,7 @@ function entryMacros(e){
       protein: e.snap.protein||0,
       fat: e.snap.fat||0,
       carbs: e.snap.carbs||0,
-      fiber: e.snap.fiber||0,
+      fiber: e.snap.fiber||0, sugar:e.snap.sugar==null?null:e.snap.sugar, salt:e.snap.salt==null?null:e.snap.salt, satFat:e.snap.satFat==null?null:e.snap.satFat, carbsSimple:e.snap.carbsSimple==null?null:e.snap.carbsSimple, carbsComplex:e.snap.carbsComplex==null?null:e.snap.carbsComplex, micronutrients:e.snap.micronutrients||{},
       vegGrams: grp2 === 'veg' ? gms2 : 0,
       fruitGrams: grp2 === 'fruit' ? gms2 : 0,
       foodGroup: grp2
@@ -1312,7 +1318,7 @@ function entryMacros(e){
     protein: p.protein*f,
     fat: p.fat*f,
     carbs: p.carbs*f,
-    fiber: (p.fiber||0)*f,
+    fiber: (p.fiber||0)*f, sugar:p.sugar==null?null:(+p.sugar||0)*f, salt:p.salt==null?null:(+p.salt||0)*f, satFat:p.satFat==null?null:(+p.satFat||0)*f, carbsSimple:p.sugar==null?null:(+p.sugar||0)*f, carbsComplex:p.sugar==null?null:Math.max(0,((p.carbs||0)-(p.fiber||0)-(p.sugar||0))*f), micronutrients:Object.fromEntries(Object.entries(p.micronutrients||{}).map(function(kv){return [kv[0],(+kv[1]||0)*f];})),
     vegGrams: grp === 'veg' ? e.grams : 0,
     fruitGrams: grp === 'fruit' ? e.grams : 0,
     foodGroup: grp
@@ -1355,11 +1361,11 @@ function foodDataWarnings(item){
 }
 
 function computeTotals(entries){
-  var t = {kcal:0, protein:0, fat:0, carbs:0, fiber:0, veg:0, fruit:0};
+  var t = {kcal:0, protein:0, fat:0, carbs:0, fiber:0, sugar:0, salt:0, satFat:0, carbsSimple:0, carbsComplex:0, micronutrients:{}, nutrientKnown:{}, veg:0, fruit:0};
   (Array.isArray(entries) ? entries : []).forEach(function(e){
     var m = entryMacros(e);
     t.kcal += m.kcal; t.protein += m.protein; t.fat += m.fat; t.carbs += m.carbs;
-    t.fiber += m.fiber||0; t.veg += m.vegGrams||0; t.fruit += m.fruitGrams||0;
+    t.fiber += m.fiber||0; ['sugar','salt','satFat','carbsSimple','carbsComplex'].forEach(function(k){if(m[k]!=null){t[k]=(t[k]||0)+(+m[k]||0);t.nutrientKnown[k]=(t.nutrientKnown[k]||0)+1;}}); Object.keys(m.micronutrients||{}).forEach(function(k){t.micronutrients[k]=(t.micronutrients[k]||0)+(+m.micronutrients[k]||0);t.nutrientKnown[k]=(t.nutrientKnown[k]||0)+1;}); t.veg += m.vegGrams||0; t.fruit += m.fruitGrams||0;
   });
   return t;
 }
@@ -1424,6 +1430,10 @@ function init(){
     var p = sGet('products', null);
     var g = sGet('goals', null);
     var w = sGet('weightLog', []);
+    waterLog = sGet('waterLog', {}) || {};
+    equipmentConfig = Object.assign({barbell:{bar:3,plates:[{weight:5,pairs:1},{weight:2.5,pairs:2},{weight:1.25,pairs:1},{weight:0.5,pairs:1}]},dumbbell:{handle:1.5,plates:[]}}, sGet('equipmentConfig', {})||{});
+    equipmentConfig.barbell = Object.assign({bar:3,plates:[{weight:5,pairs:1},{weight:2.5,pairs:2},{weight:1.25,pairs:1},{weight:0.5,pairs:1}]},equipmentConfig.barbell||{});
+    equipmentConfig.dumbbell = Object.assign({handle:1.5,plates:[]},equipmentConfig.dumbbell||{});
     var fav = sGet('favorites', []);
     var td = sGet('trainingDays', {});
     var cr = sGet('creatineLog', {});
@@ -1446,6 +1456,7 @@ function init(){
       if(goals.maintenanceWeekday == null) goals.maintenanceWeekday = 0;
       if(goals.workoutAuto == null) goals.workoutAuto = true;
       if(!goals.fiberTarget) goals.fiberTarget = 28;
+      if(!goals.sugarTarget)goals.sugarTarget=50;if(!goals.saltTarget)goals.saltTarget=5;if(!goals.satFatTarget)goals.satFatTarget=20;if(!goals.waterTarget)goals.waterTarget=2500;
       if(!goals.vegFruitTarget) goals.vegFruitTarget = 500;
       if(goals.smartAdjust == null) goals.smartAdjust = false;
     }
@@ -1745,6 +1756,51 @@ function openHomeBlocksSettings(){
   document.getElementById('homePrefsOverlay').onclick=function(e){if(e.target.id==='homePrefsOverlay')closeModal();};activateModal();
 }
 
+function startVoiceFoodEntry(){
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){var fallback=prompt('Диктовка браузером не поддерживается. Можно воспользоваться микрофоном клавиатуры. Введи фразу, например: «творог 200 грамм»');if(fallback)processVoiceFoodText(fallback);return;}
+  var rec=new SR();rec.lang='ru-RU';rec.interimResults=false;rec.maxAlternatives=1;
+  showToast('Слушаю… Назови продукт и граммовку');
+  rec.onresult=function(e){var phrase=e.results&&e.results[0]&&e.results[0][0]?e.results[0][0].transcript:'';processVoiceFoodText(phrase);};
+  rec.onerror=function(){showToast('Не удалось распознать речь. Попробуй диктовку клавиатуры.');};
+  try{rec.start();}catch(e){showToast('Микрофон недоступен в этом браузере');}
+}
+function processVoiceFoodText(text){
+  var phrase=String(text||'').toLowerCase().replace(/ё/g,'е').trim();if(!phrase)return;
+  var gramsMatch=phrase.match(/(\d+(?:[.,]\d+)?)\s*(?:грамм(?:а|ов)?|гр|г)\b/);var grams=gramsMatch?numInput(gramsMatch[1]):null;
+  var clean=phrase.replace(/\d+(?:[.,]\d+)?\s*(?:грамм(?:а|ов)?|гр|г)\b/g,'').replace(/[.,]/g,' ').trim();
+  var found=products.filter(function(p){var n=String(p.name||'').toLowerCase().replace(/ё/g,'е');return n&& (clean.indexOf(n)>=0||n.indexOf(clean)>=0);}).sort(function(a,b){return b.name.length-a.name.length;})[0];
+  if(!found){showToast('Продукт не найден в базе: '+text);return;}
+  if(!grams||grams<=0||grams>10000){var ask=prompt('Нашёл «'+found.name+'». Сколько граммов?', '100');if(ask===null)return;grams=numInput(ask);}
+  if(!validRange(grams,0.1,10000))return;
+  var entry={id:uid(),productId:found.id,grams:grams,snap:snapshotFromProduct(found,grams),meal:'snack',time:new Date().toTimeString().slice(0,5)};
+  var list=getDiary(currentDate);list.push(entry);saveDiary(currentDate,list);render();showToast('Добавлено: '+found.name+' · '+grams+' г');
+}
+async function recognizeFoodLabel(file){
+  if(!file||!/^image\//.test(file.type||''))return;
+  showToast('Загружаю распознавание этикетки…');
+  try{
+    if(!window.Tesseract){await new Promise(function(resolve,reject){var sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';sc.onload=resolve;sc.onerror=reject;document.head.appendChild(sc);});}
+    var result=await window.Tesseract.recognize(file,'rus+eng');var txt=(result&&result.data&&result.data.text)||'';
+    var name=(txt.split(/\n/).map(function(x){return x.trim();}).filter(Boolean)[0]||'').slice(0,100);
+    var nums=txt.match(/(?:ккал|калори[йи]|энергетическ[ая]|белк[и]?|жир[ы]?|углевод[ы]?)[^0-9]{0,18}(\d+(?:[.,]\d+)?)/ig)||[];
+    var vals={};txt.split(/\n/).forEach(function(line){var l=line.toLowerCase().replace(/ё/g,'е');var m=l.match(/(ккал|калори[йи]|белк[и]?|жир[ы]?|углевод[ы]?|сахар[а]?|соль)[^0-9]{0,20}(\d+(?:[.,]\d+)?)/);if(m){var v=numInput(m[2]);if(/ккал|калори/.test(m[1]))vals.kcal=v;else if(/бел/.test(m[1]))vals.protein=v;else if(/жир/.test(m[1]))vals.fat=v;else if(/углев/.test(m[1]))vals.carbs=v;else if(/сахар/.test(m[1]))vals.sugar=v;else if(/соль/.test(m[1]))vals.salt=v;else if(/насыщенн/.test(m[1]))vals.satFat=v;}});
+    var microMap=[['potassium',/калий/],['calcium',/кальций/],['magnesium',/магний/],['iron',/железо/],['zinc',/цинк/],['sodium',/натрий/],['vitaminC',/витамин\s*c/],['vitaminB12|vitамин b12',/b12|кобаламин/],['vitaminA',/витамин\s*a/],['vitaminD',/витамин\s*d/],['vitaminE',/витамин\s*e/],['folate',/фолат|фолиев/]];
+    var microVals={};txt.split(/\n/).forEach(function(line){var l=line.toLowerCase().replace(/ё/g,'е'),m=l.match(/(\d+(?:[.,]\d+)?)/);if(!m)return;microMap.forEach(function(pair){if(pair[1].test(l))microVals[pair[0].split('|')[0]]=numInput(m[1]);});});
+    openProductForm(null);setTimeout(function(){var set=function(id,v){var el=document.getElementById(id);if(el&&v!=null)el.value=v;};set('pName',name);set('pKcal',vals.kcal);set('pProtein',vals.protein);set('pFat',vals.fat);set('pCarbs',vals.carbs);set('pSugar',vals.sugar);set('pSalt',vals.salt);set('pSatFat',vals.satFat);Object.keys(microVals).forEach(function(k){var el=document.querySelector('[data-micro="'+k+'"]');if(el)el.value=microVals[k];});showToast('Распознано. Проверь название и значения перед сохранением.');},50);
+  }catch(e){showToast('Не удалось распознать этикетку. Проверь интернет и попробуй ещё раз.');}
+}
+
+function dailyNutritionQualityCard(t,entries){
+  var targets=[['sugar','Сахара',goals.sugarTarget||50,'г'],['salt','Соль',goals.saltTarget||5,'г'],['satFat','Насыщенные жиры',goals.satFatTarget||20,'г']];
+  var rows=targets.map(function(x){var known=t.nutrientKnown&&t.nutrientKnown[x[0]]||0;if(!known)return '<div class="entry"><div class="name">'+x[1]+'</div><div class="kcal">нет данных</div></div>';var v=round(t[x[0]]||0),over=v>x[2];return '<div style="margin:8px 0;"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>'+x[1]+'</span><b style="color:'+(over?'var(--red)':'var(--ink)')+'">'+v+' / '+x[2]+' '+x[3]+'</b></div><div class="bar" style="height:5px;margin-top:4px;"><i style="width:'+Math.min(100,v/x[2]*100)+'%;background:'+(over?'var(--red)':'var(--green)')+'"></i></div></div>';}).join('');
+  var microNames={potassium:'Калий',calcium:'Кальций',magnesium:'Магний',iron:'Железо',zinc:'Цинк',sodium:'Натрий',vitaminC:'Витамин C',vitaminB12:'B12',vitaminA:'Витамин A',vitaminD:'Витамин D',vitaminE:'Витамин E',folate:'Фолат'};
+  var micro=Object.keys(microNames).filter(function(k){return t.micronutrients&&t.micronutrients[k]!=null;}).map(function(k){return '<div class="entry"><div class="name">'+microNames[k]+'</div><div class="kcal">'+round(t.micronutrients[k]*10)/10+' '+((k==='vitaminA'||k==='vitaminD'||k==='vitaminB12'||k==='folate')?'мкг':'мг')+'</div></div>';}).join('');
+  var sugarKnown=t.nutrientKnown&&t.nutrientKnown.sugar;
+  var split=sugarKnown?'<div class="entry"><div class="name">Простые углеводы (сахара)</div><div class="kcal">'+round(t.carbsSimple||0)+' г</div></div><div class="entry"><div class="name">Клетчатка</div><div class="kcal">'+round(t.fiber||0)+' г</div></div><div class="entry"><div class="name">Остальные углеводы*</div><div class="kcal">'+round(t.carbsComplex||0)+' г</div></div>':'<div class="entry"><div class="name">Распределение углеводов</div><div class="kcal">добавь данные сахаров</div></div>';
+  return '<div class="section-title">Дополнительный контроль питания</div><div class="card"><div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Значения считаются только по продуктам, где заполнен расширенный состав. Отсутствие данных не считается нулём.</div>'+rows+split+'<div style="font-size:10px;color:var(--muted);margin:4px 0 8px;">* Остальные углеводы — расчётная разница между углеводами, клетчаткой и сахарами.</div><details><summary style="font-size:12px;font-weight:700;cursor:pointer;">Микронутриенты</summary>'+(micro||'<div class="empty">Пока нет заполненных данных по витаминам и минералам</div>')+'</details></div>';
+}
+
 function renderDiaryTab(content, fab){
   const entries = getDiary(currentDate);
   var dayTot = computeTotals(entries);
@@ -1755,6 +1811,9 @@ function renderDiaryTab(content, fab){
   var macroShort = { protein:'Б', fat:'Ж', carbs:'У', kcal:'ккал' };
   var homePrefs=sGet('homeBlockPrefs',{dashboard:true,protein:true,creatine:true,bike:true});
   var html = (homePrefs.dashboard===false?'<button type="button" class="btn ghost" id="homeBlocksSettings" style="width:100%;margin-bottom:10px;">Настроить главный экран</button>':dashboardCard(entries,currentDate));
+  var waterNow=+(waterLog[currentDate]||0),waterGoal=+(goals.waterTarget||2500);
+  html += '<div class="card" style="padding:10px 12px;margin-bottom:9px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div><b style="font-size:13px;">💧 Вода</b><div style="font-size:12px;color:var(--muted);margin-top:3px;">'+waterNow+' / '+waterGoal+' мл</div></div><div style="display:flex;gap:5px;"><button class="btn ghost" id="waterMinus" style="padding:6px 9px;">−250</button><button class="btn primary" id="waterPlus" style="padding:6px 9px;">+250 мл</button></div></div><div class="bar" style="margin-top:8px;"><i style="width:'+Math.min(100,waterNow/waterGoal*100)+'%"></i></div></div>';
+  html += '<div style="display:flex;gap:7px;margin:0 0 9px;"><button type="button" class="btn ghost" id="voiceFoodBtn" style="flex:1;">🎙️ Добавить голосом</button><button type="button" class="btn ghost" id="labelScanBtn" style="flex:1;">📷 Этикетка</button><input id="labelScanInput" type="file" accept="image/*" capture="environment" style="display:none"></div>';
 
   var base = baseGoals(currentDate);
   var adjNote = '';
@@ -1822,6 +1881,7 @@ function renderDiaryTab(content, fab){
   var mealProtein={breakfast:0,lunch:0,dinner:0,snack:0};
   entries.forEach(function(e){var key=e.meal||'snack';if(mealProtein[key]==null)key='snack';mealProtein[key]+=entryMacros(e).protein;});
   var mealProteinHtml=homePrefs.protein===false?'':'<div class="card" style="padding:11px 13px;margin-bottom:10px;"><div style="font-size:12px;font-weight:700;margin-bottom:7px;">Белок по приёмам пищи · ориентир 30 г</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;">'+MEAL_ORDER.map(function(m){var v=round(mealProtein[m]||0);var ok=v>=30;return '<div style="font-size:12px;color:var(--muted);">'+MEAL_LABELS[m]+' <b style="color:'+(ok?'var(--green)':'var(--ink)')+'">'+v+' / 30 г</b><div class="bar" style="height:4px;margin-top:4px;"><i style="width:'+Math.min(100,v/30*100)+'%;background:'+(ok?'var(--green)':'var(--amber)')+'"></i></div></div>';}).join('')+'</div></div>';
+  html += dailyNutritionQualityCard(dayTot,entries);
   if(!entries.length){
     html += adjNote + creatHtml + bikeHtml + `<div class="empty">Пока пусто.<br>Добавь первый приём пищи за день.</div>`;
   } else {
@@ -1841,6 +1901,11 @@ function renderDiaryTab(content, fab){
   bindWorkoutFlow();
   bindMissedWorkout();
 
+  var wp=document.getElementById('waterPlus'),wm=document.getElementById('waterMinus');
+  if(wp)wp.onclick=function(){waterLog[currentDate]=Math.min(10000,(+(waterLog[currentDate]||0))+250);sSet('waterLog',waterLog);render();};
+  if(wm)wm.onclick=function(){waterLog[currentDate]=Math.max(0,(+(waterLog[currentDate]||0))-250);sSet('waterLog',waterLog);render();};
+  var voiceBtn=document.getElementById('voiceFoodBtn');if(voiceBtn)voiceBtn.onclick=function(){startVoiceFoodEntry();};
+  var scanBtn=document.getElementById('labelScanBtn'),scanInput=document.getElementById('labelScanInput');if(scanBtn&&scanInput){scanBtn.onclick=function(){scanInput.click();};scanInput.onchange=function(){if(scanInput.files&&scanInput.files[0])recognizeFoodLabel(scanInput.files[0]);scanInput.value='';};}
   var creatBox = document.getElementById('creatineCheck');
   if(creatBox){
     creatBox.onchange = function(){
@@ -2667,7 +2732,7 @@ function openExerciseProgress(name){
 
 function computeRecipeFromIngredients(ings){
   // ings: [{productId, grams}]
-  var tot = { kcal:0, protein:0, fat:0, carbs:0, fiber:0, grams:0 };
+  var tot = { kcal:0, protein:0, fat:0, carbs:0, fiber:0, sugar:0, salt:0, satFat:0, micronutrients:{}, grams:0 };
   var resolved = [];
   ings.forEach(function(ing){
     var p = products.find(function(x){ return x.id === ing.productId; });
@@ -2678,7 +2743,7 @@ function computeRecipeFromIngredients(ings){
     tot.protein += (p.protein||0)*f;
     tot.fat += (p.fat||0)*f;
     tot.carbs += (p.carbs||0)*f;
-    tot.fiber += (p.fiber||0)*f;
+    tot.fiber += (p.fiber||0)*f; if(p.sugar!=null)tot.sugar+=(+p.sugar||0)*f;if(p.salt!=null)tot.salt+=(+p.salt||0)*f;if(p.satFat!=null)tot.satFat+=(+p.satFat||0)*f;Object.keys(p.micronutrients||{}).forEach(function(k){tot.micronutrients[k]=(tot.micronutrients[k]||0)+(+p.micronutrients[k]||0)*f;});
     tot.grams += ing.grams;
     resolved.push({ productId: p.id, name: p.name, grams: ing.grams });
   });
@@ -2689,6 +2754,7 @@ function computeRecipeFromIngredients(ings){
     fat: round(tot.fat / tot.grams * 100 * 10) / 10,
     carbs: round(tot.carbs / tot.grams * 100 * 10) / 10,
     fiber: round(tot.fiber / tot.grams * 100 * 10) / 10,
+    sugar:round(tot.sugar/tot.grams*100*10)/10,salt:round(tot.salt/tot.grams*100*10)/10,satFat:round(tot.satFat/tot.grams*100*10)/10,micronutrients:Object.fromEntries(Object.keys(tot.micronutrients).map(function(k){return [k,round(tot.micronutrients[k]/tot.grams*100*10)/10];})),
     totalGrams: round(tot.grams),
     totalKcal: round(tot.kcal),
     ingredients: resolved
@@ -2790,7 +2856,7 @@ function openRecipeForm(seedEntries){
           protein: calc2.protein,
           fat: calc2.fat,
           carbs: calc2.carbs,
-          fiber: calc2.fiber,
+          fiber: calc2.fiber, sugar:calc2.sugar, salt:calc2.salt, satFat:calc2.satFat, micronutrients:calc2.micronutrients,
           foodGroup: 'other',
           portionName: 'порция',
           portionGrams: calc2.totalGrams
@@ -2912,6 +2978,12 @@ function renderTrainingHistoryBlock(){
     return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(session.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':sets.length+' подходов')+'　⌄</span></summary>'+details+(!cancelled?'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Редактировать тренировку</button>':'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Изменить запись</button>')+'</details>';
   }).join('');
 }
+function renderOneRmCard(){
+  var best={};trainingJournalList().forEach(function(s){(s.sets||[]).forEach(function(x){var w=+x.weight||0,r=+x.reps||0;if(!w||r<1||r>15)return;var est=w*(1+r/30),key=exerciseMatchKey(x.name);if(!best[key]||est>best[key].value)best[key]={name:x.name,value:est,weight:w,reps:r,date:s.date};});});
+  var rows=Object.keys(best).map(function(k){return best[k];}).sort(function(a,b){return b.value-a.value;}).slice(0,8);
+  return '<div class="section-title">Расчётный максимум · 1ПМ</div><div class="card"><div style="font-size:11px;color:var(--muted);margin-bottom:7px;">Оценка по формуле Эпли из лучшего подхода (до 15 повторений), не фактический тест на максимум.</div>'+(rows.length?rows.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:10px;color:var(--muted);">'+x.weight+' кг × '+x.reps+' · '+fmtDateHuman(x.date)+'</div></div><div class="kcal">'+round(x.value)+' кг</div></div>';}).join(''):'<div class="empty">Появится после записи рабочих подходов</div>')+'</div>';
+}
+
 function renderWorkoutsTab(content,fab){
   migrateLegacyTrainingJournal();
   if(goals.workoutAuto!==false){try{prepareWorkoutsForDate(currentDate);}catch(e){}}
@@ -2939,7 +3011,7 @@ function renderWorkoutsTab(content,fab){
   html+=workoutFlowCard();
   html+=renderTrainingHistoryBlock();
   html+='<div class="section-title">Фактическая нагрузка · 7 дней</div><div class="card"><div class="entry"><div class="name">Выполнено подходов</div><div class="kcal">'+stats.sets+'</div></div><div class="entry"><div class="name">Тренировок</div><div class="kcal">'+stats.sessions+'</div></div><div class="entry"><div class="name">Упражнений</div><div class="kcal">'+stats.exercises+'</div></div><div class="entry"><div class="name">Тоннаж</div><div class="kcal">'+stats.volume.toLocaleString('ru-RU')+' кг</div></div><div style="font-size:10px;color:var(--muted);margin-top:6px;">Только фактически записанные подходы из журнала, а не запланированные.</div></div>';
-  html+=renderTrainingInsights()+workoutHistoryReportCard()+muscleDevelopmentMap()+jointLoadCard()+tenPercentProjectionCard()+exerciseEffectivenessCard()+loadRotationCard()+consistencyCalendarCard()+exerciseHistoryCard();
+  html+=renderOneRmCard()+renderTrainingInsights()+workoutHistoryReportCard()+muscleDevelopmentMap()+jointLoadCard()+tenPercentProjectionCard()+exerciseEffectivenessCard()+loadRotationCard()+consistencyCalendarCard()+exerciseHistoryCard();
   html+='<div class="section-title">Объём и корректировка · 4 недели</div><div class="card">'+muscleProgressByGroup()+'</div>'+volumeAdjustmentCard();
   html+=progressPhotoCard();
   content.innerHTML=html;fab.innerHTML='';
@@ -3462,12 +3534,12 @@ function renderWeightTab(content, fab, append){
       return { x: x, y: y };
     }
 
-    // continuous polyline (no dots)
-    var pathD = '';
-    for(var i=0;i<ptsData.length;i++){
-      var p = xy(ptsData[i]);
-      pathD += (i===0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
-    }
+    // Фактическая линия, скользящее среднее за 7 календарных дней и линейный тренд.
+    var pathD = '', smoothPathD='', trendPathD='';
+    var smoothPts=ptsData.map(function(w,i){var cutoff=shiftDate(w.date,-6),slice=ptsData.filter(function(x){return x.date>=cutoff&&x.date<=w.date;}),avg=slice.reduce(function(a,x){return a+(+x.kg||0);},0)/Math.max(1,slice.length);return {date:w.date,kg:avg};});
+    for(var i=0;i<ptsData.length;i++){var p=xy(ptsData[i]);pathD+=(i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1);var sp=xy(smoothPts[i]);smoothPathD+=(i===0?'M':'L')+sp.x.toFixed(1)+','+sp.y.toFixed(1);}
+    var xs=ptsData.map(function(w){return dateToMs(w.date)/86400000;}),ys=ptsData.map(function(w){return +w.kg||0;}),xm=xs.reduce(function(a,x){return a+x;},0)/xs.length,ym=ys.reduce(function(a,y){return a+y;},0)/ys.length,den=xs.reduce(function(a,x){return a+Math.pow(x-xm,2);},0),slope=den?xs.reduce(function(a,x,i){return a+(x-xm)*(ys[i]-ym);},0)/den:0,inter=ym-slope*xm;
+    var trStart={date:ptsData[0].date,kg:inter+slope*xs[0]},trEnd={date:ptsData[ptsData.length-1].date,kg:inter+slope*xs[xs.length-1]};var tr1=xy(trStart),tr2=xy(trEnd);trendPathD='M'+tr1.x.toFixed(1)+','+tr1.y.toFixed(1)+'L'+tr2.x.toFixed(1)+','+tr2.y.toFixed(1);
     var overallDelta = ptsData[ptsData.length-1].kg - ptsData[0].kg;
     var lineColor = overallDelta > 0.05 ? '#c45c4a' : (overallDelta < -0.05 ? '#3c6e47' : '#8a8a7d');
 
@@ -3487,9 +3559,9 @@ function renderWeightTab(content, fab, append){
         '<div style="font-size:12px;color:var(--muted);">'+fmtDateHuman(ptsData[0].date)+' → '+fmtDateHuman(ptsData[ptsData.length-1].date)+'</div>'+
         '<div style="font-size:18px;font-weight:700;color:'+deltaColor.replace('var(--red)','#c45c4a').replace('var(--green)','#3c6e47').replace('var(--muted)','#8a8a7d')+';">'+deltaStr+'</div>'+
       '</div>'+
-      '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">за '+daysSpan+' дн. · '+ptsData[0].kg+' → '+ptsData[ptsData.length-1].kg+' кг</div>'+
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">за '+daysSpan+' дн. · '+ptsData[0].kg+' → '+ptsData[ptsData.length-1].kg+' кг</div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Тонкая линия — ежедневные замеры · толстая — сглаживание · пунктир — общий тренд</div>'+
       '<svg class="chart" viewBox="0 0 '+W+' '+H+'" style="height:160px;">'+
-        '<path d="'+pathD+'" fill="none" stroke="'+lineColor+'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'+
+        '<path d="'+pathD+'" fill="none" stroke="'+lineColor+'" stroke-opacity=".28" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="'+smoothPathD+'" fill="none" stroke="'+lineColor+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="'+trendPathD+'" fill="none" stroke="#a3792f" stroke-width="1.8" stroke-dasharray="5 4"/>'+
         '<text x="'+startP.x+'" y="'+(startP.y-6)+'" font-size="10" fill="#8a8a7d" text-anchor="middle" font-family="system-ui">'+startLbl+'</text>'+
         '<text x="'+endP.x+'" y="'+(endP.y-6)+'" font-size="10" fill="#8a8a7d" text-anchor="middle" font-family="system-ui">'+endLbl+'</text>'+
         '<text x="'+padL+'" y="'+(H-4)+'" font-size="9" fill="#8a8a7d" font-family="system-ui">'+dateStart+'</text>'+
@@ -4099,7 +4171,9 @@ function renderReportTab(content, fab){
     var maintenanceNote = maintenanceEstimate ? 'Одна оценка поддержания: около '+maintenanceEstimate+' ккал/день'+confidenceText+'. Не меняем цель автоматически.' : 'Для оценки поддержания нужны данные примерно за 30 дней: не менее 24 дней питания и 4 взвешиваний.';
     weeklyNutritionInsight = '<div class="section-title">Питание · контроль недели</div><div class="card"><div class="entry"><div class="name">Средний жир</div><div class="kcal">'+avgF+' г/день</div></div><div class="entry"><div class="name">Оценка поддержания</div><div class="kcal">'+(maintenanceEstimate||'—')+' ккал</div></div><div style="font-size:12px;color:var(--muted);line-height:1.45;">'+fatFloorNote+' '+paceNote+' '+maintenanceNote+'</div></div>';
   }
+  var waterDays=0,waterSum=0;for(var wi=6;wi>=0;wi--){var wv=waterLog[shiftDate(todayStr(),-wi)];if(wv!=null){waterDays++;waterSum+=(+wv||0);}}var waterAvg=waterDays?Math.round(waterSum/waterDays):0;
   content.innerHTML = `
+    <div class="section-title">Вода · последние 7 дней</div><div class="card"><div class="entry"><div class="name">Среднее за день</div><div class="kcal">${waterDays?waterAvg+' мл':'—'}</div></div><div style="font-size:10px;color:var(--muted);">Заполнено дней: ${waterDays}/7 · цель ${goals.waterTarget||2500} мл</div></div>
     <div class="section-title">Среднее за 7 дней</div><div style="font-size:11px;color:var(--muted);margin:-4px 0 8px;">Включая сегодня · записи: ${withData.length}/7</div>
     <div class="stat-grid">
       <div class="stat"><div class="slab">Ср. вес (7 дней)</div><div class="sval">${avgWthis!=null?round(avgWthis):'—'} кг</div></div>
@@ -4263,11 +4337,13 @@ function collectAllData(){
   try{if(_storageOk){for(var pi=0;pi<localStorage.length;pi++){var pk=localStorage.key(pi);if(pk&&pk.indexOf('planCustom:')===0)planCustom[pk.slice(11)]=1;}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('planCustom:')===0&&_memStore[k])planCustom[k.slice(11)]=1;});
   return {
-    version: 9, appVersion: 1,
+    version: 9, appVersion: 4,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,
     weightLog: weightLog,
+    waterLog: waterLog,
+    equipmentConfig: equipmentConfig,
     measureLog: measureLog,
     creatineLog: creatineLog,
     favorites: favorites,
@@ -4299,7 +4375,7 @@ async function exportData(){
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kbju-backup-v42-' + todayStr() + '.json';
+    a.download = 'kbju-backup-v4-' + todayStr() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -4370,7 +4446,7 @@ function importData(ev){
       if(!data || typeof data !== 'object' || Array.isArray(data) || (data.version!=null && +data.version>9)) throw new Error('bad backup');
       var arrayKeys = ['products','weightLog','measureLog','favorites','exercises','mealTemplates'];
       arrayKeys.forEach(function(k){ if(data[k] != null && !Array.isArray(data[k])) throw new Error('bad '+k); });
-      ['diary','workouts','bike','goals','creatineLog','trainingDays','mealPlan','shopChecked','inventory','dayCompleteness','dayTemplate','recovery','muscleVolumeTargets'].forEach(function(k){
+      ['diary','workouts','bike','goals','waterLog','equipmentConfig','creatineLog','trainingDays','mealPlan','shopChecked','inventory','dayCompleteness','dayTemplate','recovery','muscleVolumeTargets'].forEach(function(k){
         if(data[k] != null && (typeof data[k] !== 'object' || Array.isArray(data[k]) && !['diary','workouts','bike'].includes(k))) throw new Error('bad '+k);
       });
       if(data.recovery != null && (typeof data.recovery !== 'object' || Array.isArray(data.recovery))) throw new Error('bad recovery');
@@ -4386,6 +4462,8 @@ function importData(ev){
       });
       if(data.recovery) Object.keys(data.recovery).forEach(function(d){if(!isValidISODate(d))throw new Error('bad recovery date');});
       if(data.dayTemplate && (typeof data.dayTemplate!=='object' || !Array.isArray(data.dayTemplate.entries))) throw new Error('bad dayTemplate');
+      if(data.waterLog!=null && (typeof data.waterLog!=='object'||Array.isArray(data.waterLog)))throw new Error('bad waterLog');
+      if(data.equipmentConfig!=null && (typeof data.equipmentConfig!=='object'||Array.isArray(data.equipmentConfig)))throw new Error('bad equipmentConfig');
       if(data.weightLog) data.weightLog.forEach(function(w){if(!w || !isValidISODate(w.date) || !isFinite(+w.kg) || +w.kg<=0)throw new Error('bad weight');});
       if(data.diary) Object.keys(data.diary).forEach(function(d){(data.diary[d]||[]).forEach(function(e){
         if(!e || typeof e!=='object' || Array.isArray(e))throw new Error('bad diary row');
@@ -4411,7 +4489,7 @@ function importData(ev){
       if(_storageOk){ for(var si=0;si<localStorage.length;si++){ var sk=localStorage.key(si); storageBackup[sk]=localStorage.getItem(sk); } }
       var oldIdbCache=Object.assign({},_idbCache);
       var oldMemStore=Object.assign({},_memStore);
-      var oldState = {products:products,goals:goals,weightLog:weightLog,measureLog:measureLog,creatineLog:creatineLog,favorites:favorites,trainingDays:trainingDays,exercises:exercises,dayTemplate:dayTemplate,diaryCache:diaryCache,workoutCache:workoutCache,bikeCache:bikeCache,hasMealPlan:(typeof mealPlan!=='undefined'),mealPlan:(typeof mealPlan!=='undefined'?mealPlan:null),mealTemplates:[],progressPhotos:sGet('progressPhotos',[]),hasShopChecked:(typeof shopChecked!=='undefined'),shopChecked:(typeof shopChecked!=='undefined'?shopChecked:null),hasInventory:(typeof inventory!=='undefined'),inventory:(typeof inventory!=='undefined'?inventory:null)};
+      var oldState = {products:products,goals:goals,weightLog:weightLog,waterLog:waterLog,equipmentConfig:equipmentConfig,measureLog:measureLog,creatineLog:creatineLog,favorites:favorites,trainingDays:trainingDays,exercises:exercises,dayTemplate:dayTemplate,diaryCache:diaryCache,workoutCache:workoutCache,bikeCache:bikeCache,hasMealPlan:(typeof mealPlan!=='undefined'),mealPlan:(typeof mealPlan!=='undefined'?mealPlan:null),mealTemplates:[],progressPhotos:sGet('progressPhotos',[]),hasShopChecked:(typeof shopChecked!=='undefined'),shopChecked:(typeof shopChecked!=='undefined'?shopChecked:null),hasInventory:(typeof inventory!=='undefined'),inventory:(typeof inventory!=='undefined'?inventory:null)};
       try{
         // Удаляем старые датированные записи из всех хранилищ, включая IDB-only режим.
         var dynamicKeyMap={};
@@ -4421,14 +4499,14 @@ function importData(ev){
         diaryCache={};workoutCache={};bikeCache={};
         if(data.products) products=data.products;
         if(data.goals) goals=data.goals;
-        if(data.weightLog) weightLog=data.weightLog;
+        if(data.weightLog) weightLog=data.weightLog;if(data.waterLog){waterLog=data.waterLog;sSet('waterLog',waterLog);}if(data.equipmentConfig){equipmentConfig=data.equipmentConfig;sSet('equipmentConfig',equipmentConfig);}
         if(data.measureLog) measureLog=data.measureLog;
         if(data.creatineLog) creatineLog=data.creatineLog;
         if(data.favorites) favorites=data.favorites;
         if(data.trainingDays) trainingDays=data.trainingDays;
         if(data.exercises) exercises=data.exercises;
         if(data.dayTemplate){dayTemplate=data.dayTemplate;sSet('dayTemplate',dayTemplate);}
-        [['products',products],['goals',goals],['weightLog',weightLog],['measureLog',measureLog],['creatineLog',creatineLog],['favorites',favorites],['trainingDays',trainingDays],['exercises',exercises]].forEach(function(x){ if(data[x[0]]!=null) sSet(x[0],x[1]); });
+        [['products',products],['goals',goals],['weightLog',weightLog],['waterLog',waterLog],['equipmentConfig',equipmentConfig],['measureLog',measureLog],['creatineLog',creatineLog],['favorites',favorites],['trainingDays',trainingDays],['exercises',exercises]].forEach(function(x){ if(data[x[0]]!=null) sSet(x[0],x[1]); });
         if(data.progressPhotos){sSet('progressPhotos',data.progressPhotos);}
         if(data.dayCompleteness){sSet('dayCompleteness',data.dayCompleteness);}
         if(data.muscleVolumeTargets){sSet('muscleVolumeTargets',data.muscleVolumeTargets);}
@@ -4441,7 +4519,7 @@ function importData(ev){
         if(data.workouts){ workoutCache={}; Object.keys(data.workouts).forEach(function(d){workoutCache[d]=data.workouts[d];sSet('workout:'+d,data.workouts[d]);}); }
         if(data.bike){ bikeCache={}; Object.keys(data.bike).forEach(function(d){var b=data.bike[d];if(b&&b.km>0){bikeCache[d]={km:+b.km,kcal:bikeKcalFromKm(+b.km)};sSet('bike:'+d,bikeCache[d]);}}); }
       }catch(writeErr){
-        products=oldState.products;goals=oldState.goals;weightLog=oldState.weightLog;measureLog=oldState.measureLog;creatineLog=oldState.creatineLog;favorites=oldState.favorites;trainingDays=oldState.trainingDays;exercises=oldState.exercises;dayTemplate=oldState.dayTemplate;diaryCache=oldState.diaryCache;workoutCache=oldState.workoutCache;bikeCache=oldState.bikeCache;
+        products=oldState.products;goals=oldState.goals;weightLog=oldState.weightLog;waterLog=oldState.waterLog;equipmentConfig=oldState.equipmentConfig;measureLog=oldState.measureLog;creatineLog=oldState.creatineLog;favorites=oldState.favorites;trainingDays=oldState.trainingDays;exercises=oldState.exercises;dayTemplate=oldState.dayTemplate;diaryCache=oldState.diaryCache;workoutCache=oldState.workoutCache;bikeCache=oldState.bikeCache;
         sSet('progressPhotos',oldState.progressPhotos||[]);
         if(oldState.hasMealPlan)mealPlan=oldState.mealPlan;else if(typeof mealPlan!=='undefined')delete window.mealPlan;mealTemplates=oldState.mealTemplates||[];if(oldState.hasShopChecked)shopChecked=oldState.shopChecked;else if(typeof shopChecked!=='undefined')delete window.shopChecked;if(oldState.hasInventory)inventory=oldState.inventory;else if(typeof inventory!=='undefined')delete window.inventory;
         _memStore=Object.assign({},oldMemStore);
@@ -4970,6 +5048,13 @@ function openProductForm(existing){
           <div class="field"><label>Углеводы, г</label><input id="pCarbs" type="number" inputmode="decimal" value="${existing?existing.carbs:''}"></div>
           <div class="field"><label>Клетчатка, г / 100 г</label><input id="pFiber" type="number" inputmode="decimal" value="${existing&&existing.fiber!=null?existing.fiber:''}" placeholder="0"></div>
         </div>
+        <details style="margin:8px 0 12px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;"><summary style="font-size:13px;font-weight:700;cursor:pointer;">Расширенный состав · на 100 г</summary>
+          <div class="row2" style="margin-top:10px;"><div class="field"><label>Сахара, г</label><input id="pSugar" type="number" inputmode="decimal" step="0.1" value="${existing&&existing.sugar!=null?existing.sugar:''}" placeholder="0"></div><div class="field"><label>Соль, г</label><input id="pSalt" type="number" inputmode="decimal" step="0.01" value="${existing&&existing.salt!=null?existing.salt:''}" placeholder="0"></div></div>
+          <div class="field"><label>Насыщенные жиры, г</label><input id="pSatFat" type="number" inputmode="decimal" step="0.1" value="${existing&&existing.satFat!=null?existing.satFat:''}" placeholder="0"></div>
+          <div style="font-size:11px;color:var(--muted);margin:8px 0 5px;">Микронутриенты (мг на 100 г, витамины A и D — мкг)</div>
+          <div class="row2">${[['potassium','Калий'],['calcium','Кальций'],['magnesium','Магний'],['iron','Железо'],['zinc','Цинк'],['sodium','Натрий']].map(function(x){return '<div class="field"><label>'+x[1]+'</label><input type="number" inputmode="decimal" step="0.1" data-micro="'+x[0]+'" value="'+(existing&&existing.micronutrients&&existing.micronutrients[x[0]]!=null?existing.micronutrients[x[0]]:'')+'" placeholder="0"></div>';}).join('')}</div>
+          <div class="row2">${[['vitaminC','Витамин C, мг'],['vitaminB12','B12, мкг'],['vitaminA','Витамин A, мкг'],['vitaminD','Витамин D, мкг'],['vitaminE','Витамин E, мг'],['folate','Фолат, мкг']].map(function(x){return '<div class="field"><label>'+x[1]+'</label><input type="number" inputmode="decimal" step="0.1" data-micro="'+x[0]+'" value="'+(existing&&existing.micronutrients&&existing.micronutrients[x[0]]!=null?existing.micronutrients[x[0]]:'')+'" placeholder="0"></div>';}).join('')}</div>
+        </details>
         <div class="field"><label>Группа продукта</label>
           <select id="pGroup" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--card);font-size:15px;">
             ${[['protein','Белок (мясо/рыба/яйца)'],['dairy','Молочное / протеин'],['grain','Крупы / хлеб / картофель'],['veg','Овощи'],['fruit','Фрукты / ягоды'],['other','Прочее']].map(function(opt){
@@ -5013,6 +5098,8 @@ function openProductForm(existing){
     const fat = numInput(document.getElementById('pFat').value)||0;
     const carbs = numInput(document.getElementById('pCarbs').value)||0;
     const fiber = numInput(document.getElementById('pFiber').value);
+    const sugarRaw=document.getElementById('pSugar')?.value||'',saltRaw=document.getElementById('pSalt')?.value||'',satRaw=document.getElementById('pSatFat')?.value||'';const sugar=sugarRaw.trim()===''?null:numInput(sugarRaw),salt=saltRaw.trim()===''?null:numInput(saltRaw),satFat=satRaw.trim()===''?null:numInput(satRaw);
+    const micronutrients={};document.querySelectorAll('[data-micro]').forEach(function(el){var v=numInput(el.value);if(!isNaN(v)&&v>0)micronutrients[el.dataset.micro]=v;});
     const foodGroup = document.getElementById('pGroup').value || 'other';
     const customCategory = document.getElementById('pCustomCategory').value.trim();
     const portionName = (document.getElementById('pPortionName').value || '').trim();
@@ -5039,11 +5126,11 @@ function openProductForm(existing){
     }
     var pid;
     if(existing){
-      Object.assign(existing, {name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs, customCategory:customCategory}, portion);
+      Object.assign(existing, {name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs, sugar:sugar, salt:salt, satFat:satFat, micronutrients:micronutrients, customCategory:customCategory}, portion);
       pid = existing.id;
     } else {
       pid = uid();
-      products.push(Object.assign({id:pid, name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs, customCategory:customCategory}, portion));
+      products.push(Object.assign({id:pid, name:name, kcal:kcal, protein:protein, fat:fat, carbs:carbs, sugar:sugar, salt:salt, satFat:satFat, micronutrients:micronutrients, customCategory:customCategory}, portion));
     }
     sSet('products', products);
     closeModal();
@@ -5170,6 +5257,26 @@ function openMeasureForm(existing){
   };
 }
 
+function parsePlateInventory(text){return String(text||'').split(/[;\n]+/).map(function(x){var m=x.trim().match(/^(\d+(?:[.,]\d+)?)\s*[:xх]\s*(\d+)$/i);return m?{weight:numInput(m[1]),pairs:Math.max(0,Math.floor(+m[2]))}:null;}).filter(function(x){return x&&x.weight>0&&x.pairs>0;});}
+function formatPlateInventory(arr){return (arr||[]).map(function(x){return String(x.weight)+':'+x.pairs;}).join('; ');}
+function equipmentSnapWeight(name,target){
+  var isDb=/гантел|молот/i.test(String(name||'')),cfg=isDb?equipmentConfig.dumbbell:equipmentConfig.barbell,base=isDb?(+cfg.handle||0):(+cfg.bar||0),plates=(cfg.plates||[]).filter(function(x){return +x.weight>0&&+x.pairs>0;});
+  if(!plates.length||!(target>0))return target;
+  // перебираем все допустимые сочетания блинов на одну сторону; количество задаётся парами.
+  var sums=[0];plates.forEach(function(pl){var before=sums.slice();for(var n=1;n<=pl.pairs;n++)before.forEach(function(v){sums.push(v+n*(+pl.weight));});sums=Array.from(new Set(sums.map(function(v){return Math.round(v*100)/100;}))).slice(0,5000);});
+  var totalTarget=+target,perSideTarget=isDb?(totalTarget-base)/2:(totalTarget-base)/2;
+  if(perSideTarget<0)return base;
+  var candidates=sums.map(function(v){return base+2*v;}).filter(function(v){return v<=totalTarget+0.001;});
+  if(!candidates.length)return base;
+  return Math.max.apply(null,candidates);
+}
+function openEquipmentSettings(){
+  var root=document.getElementById('modalRoot'),b=equipmentConfig.barbell,d=equipmentConfig.dumbbell;
+  root.innerHTML='<div class="overlay" id="equipmentOverlay"><div class="sheet"><h2>Оборудование</h2><div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Количество блинов указывается парами: сколько одинаковых блинов есть на каждую сторону грифа или каждой гантели. План будет округляться до реально собираемого веса.</div><div class="section-title">Штанга</div><div class="field"><label>Вес пустого грифа, кг</label><input id="eqBar" type="number" step="0.1" inputmode="decimal" value="'+(+b.bar||0)+'"></div><div class="field"><label>Блины: вес:количество пар</label><input id="eqBarPlates" value="'+escapeHTML(formatPlateInventory(b.plates))+'" placeholder="0.5:1; 1.25:1; 2.5:2; 5:1"></div><div class="section-title">Гантели</div><div class="field"><label>Вес рукояти одной гантели, кг</label><input id="eqDb" type="number" step="0.1" inputmode="decimal" value="'+(+d.handle||0)+'"></div><div class="field"><label>Блины: вес:количество пар на одну гантель</label><input id="eqDbPlates" value="'+escapeHTML(formatPlateInventory(d.plates))+'" placeholder="0.5:2; 1.25:2; 2.5:2"></div><div class="sheet-actions"><button class="btn ghost" id="eqCancel">Отмена</button><button class="btn primary" id="eqSave">Сохранить</button></div></div></div>';
+  document.getElementById('eqCancel').onclick=closeModal;document.getElementById('equipmentOverlay').onclick=function(e){if(e.target.id==='equipmentOverlay')closeModal();};
+  document.getElementById('eqSave').onclick=function(){var bar=numInput(document.getElementById('eqBar').value),db=numInput(document.getElementById('eqDb').value);if(!validRange(bar,0,30)||!validRange(db,0,10)){showToast('Проверь вес грифа и рукояти');return;}equipmentConfig={barbell:{bar:bar,plates:parsePlateInventory(document.getElementById('eqBarPlates').value)},dumbbell:{handle:db,plates:parsePlateInventory(document.getElementById('eqDbPlates').value)}};sSet('equipmentConfig',equipmentConfig);closeModal();render();showToast('Оборудование сохранено');};activateModal();
+}
+
 function openGoalsForm(){
   const root=document.getElementById('modalRoot');
   var mode=goals.autoMode||'cut';
@@ -5177,7 +5284,7 @@ function openGoalsForm(){
   var plan=autoGoalPlan(mode), preview=macrosFromDeficitPlan(plan.kcal,mode);
   root.innerHTML=`
     <div class="overlay" id="ov"><div class="sheet">
-      <h2>Режим питания</h2>
+      <h2>Режим питания</h2><button type="button" class="btn ghost" id="openEquipmentSettings" style="width:100%;margin-bottom:10px;">⚙️ Настроить оборудование</button>
       <div class="field"><label>Выбери цель</label><select id="gAutoMode" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;">
         <option value="cut" ${mode==='cut'?'selected':''}>Сушка · −2% массы в месяц</option>
         <option value="supercut" ${mode==='supercut'?'selected':''}>Супер-сушка · −4% массы в месяц</option>
@@ -5186,7 +5293,7 @@ function openGoalsForm(){
         <option value="recomp" ${mode==='recomp'?'selected':''}>Рекомпозиция тела</option>
       </select></div>
       <div class="field"><label>Оценка жира в организме, %</label><input id="gBodyFat" type="number" min="3" max="60" step="0.5" inputmode="decimal" value="${bodyFatPercent()}"></div>
-      <div id="autoGoalsView" class="card" style="margin-bottom:12px;padding:12px 14px;"></div>
+      <div class="section-title">Цели дополнительного контроля</div><div class="row2"><div class="field"><label>Вода, мл/день</label><input id="gWater" type="number" inputmode="numeric" value="${goals.waterTarget||2500}"></div><div class="field"><label>Сахара, г/день</label><input id="gSugar" type="number" inputmode="decimal" value="${goals.sugarTarget||50}"></div></div><div class="row2"><div class="field"><label>Соль, г/день</label><input id="gSalt" type="number" inputmode="decimal" value="${goals.saltTarget||5}"></div><div class="field"><label>Насыщенные жиры, г/день</label><input id="gSatFat" type="number" inputmode="decimal" value="${goals.satFatTarget||20}"></div></div><div id="autoGoalsView" class="card" style="margin-bottom:12px;padding:12px 14px;"></div>
       <div class="field"><label>Калории поддержания</label><input id="gMaint2" type="number" inputmode="decimal" value="${goals.maintenanceKcal||''}" placeholder="например, 2200"></div>
       <label style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 8px;font-size:13px;line-height:1.4;">
         <input type="checkbox" id="gWoAuto" ${goals.workoutAuto!==false?'checked':''} style="width:20px;height:20px;margin-top:2px;accent-color:var(--green);">
@@ -5198,6 +5305,7 @@ function openGoalsForm(){
       </div>
       <div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>
     </div></div>`;
+  var eqBtn=document.getElementById('openEquipmentSettings');if(eqBtn)eqBtn.onclick=openEquipmentSettings;
   function refresh(){
     var m=document.getElementById('gAutoMode').value, bf=Number(document.getElementById('gBodyFat').value);
     if(isFinite(bf)&&bf>=3&&bf<=60)goals.bodyFatPct=bf;
@@ -5219,6 +5327,7 @@ function openGoalsForm(){
     var p=autoGoalPlan(m), x=macrosFromDeficitPlan(p.kcal,m);
     goals.maintenanceKcal=p.maintenance;goals.kcal=x.kcal;goals.protein=x.protein;goals.fat=x.fat;goals.carbs=x.carbs;
     goals.workoutAuto=!!document.getElementById('gWoAuto').checked;
+    goals.waterTarget=Math.max(250,Math.min(10000,numInput(document.getElementById('gWater').value)||2500));goals.sugarTarget=Math.max(0,Math.min(300,numInput(document.getElementById('gSugar').value)||50));goals.saltTarget=Math.max(0,Math.min(30,numInput(document.getElementById('gSalt').value)||5));goals.satFatTarget=Math.max(0,Math.min(100,numInput(document.getElementById('gSatFat').value)||20));
     goals.trainKcal=goals.kcal;goals.trainProtein=goals.protein;goals.trainFat=goals.fat;goals.trainCarbs=goals.carbs;
     sSet('goals',goals);closeModal();render();
   };

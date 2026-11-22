@@ -3111,7 +3111,7 @@ function avgWeightInRange(fromDate, toDate){
 }
 
 /**
- * Оценка поддержки по еде+весу за ~14 и ~30 дней.
+ * Оценка поддержки по еде+весу за 30 и 45 дней.
  * Важно: быстрый сброс (вода/гликоген) не считаем целиком жиром —
  * учитываем Δкг не быстрее ~0.75 кг/нед для формулы.
  */
@@ -3135,17 +3135,17 @@ function estimateMaintenanceKcal(){
       }
     }
     // Требуем не менее 80% дней, явно отмеченных как полностью записанные.
-    var minFoodDays = daysBack >= 28 ? 24 : 12;
+    var minFoodDays = Math.round(daysBack * 0.8);
     if(foodDays < minFoodDays) return null;
     var avgIntake = totalK / foodDays;
 
     var wStart = shiftDate(start, -3);
     var weights = sortedW.filter(function(w){ return w.date >= wStart && w.date <= end; });
-    var minWeights = daysBack >= 28 ? 4 : 3;
+    var minWeights = daysBack >= 40 ? 6 : 4;
     if(weights.length < minWeights) return null;
     var w0 = weights[0], w1 = weights[weights.length - 1];
     var spanDays = daysBetween(w0.date, w1.date);
-    if(spanDays < (daysBack >= 28 ? 21 : 10)) return null;
+    if(spanDays < Math.round(daysBack * 0.7)) return null;
 
     // Линейный тренд по всем взвешиваниям вместо разницы двух крайних точек.
     // Это снижает влияние разовых скачков воды и соли.
@@ -3165,7 +3165,7 @@ function estimateMaintenanceKcal(){
     if(!isFinite(maint)) return null;
 
     // вес окна: длиннее + больше еды — надёжнее; 30д важнее 14д
-    var wgt = (foodDays / daysBack) * (spanDays / daysBack) * (daysBack >= 28 ? 1.35 : 1);
+    var wgt = (foodDays / daysBack) * (spanDays / daysBack);
     return {
       daysBack: daysBack,
       foodDays: foodDays,
@@ -3181,11 +3181,13 @@ function estimateMaintenanceKcal(){
     };
   }
 
-  var e14 = windowEst(14);
+  // Окна 30 и 45 дней. Короткие окна (14 дн.) не используем: колебания воды
+  // и гликогена в них принимаются за изменение жира и завышают поддержание.
   var e30 = windowEst(30);
+  var e45 = windowEst(45);
   var parts = [];
-  if(e14) parts.push(e14);
   if(e30) parts.push(e30);
+  if(e45) parts.push(e45);
 
   // Автооценка требует полноценного 30-дневного окна: минимум 24 дня питания,
   // 4 взвешивания и не менее 21 дня между крайними измерениями. Короткое окно
@@ -3217,7 +3219,7 @@ function estimateMaintenanceKcal(){
   }).join(' · ');
   detail += ' → итог '+kcal;
   var confidence = 'medium';
-  if(e14 && Math.abs(e14.maint - e30.maint) <= 250 && e30.foodCoverage >= 0.8 && e30.weightCount >= 6) confidence = 'high';
+  if(e45 && Math.abs(e45.maint - e30.maint) <= 150 && e30.foodCoverage >= 0.8 && e30.weightCount >= 6) confidence = 'high';
   return { kcal: kcal, source: 'weight+intake', confidence: confidence, detail: detail, windows: parts, foodDays30:e30.foodDays, weightCount30:e30.weightCount, spanDays30:e30.spanDays };
 }
 
@@ -4167,7 +4169,7 @@ function renderReportTab(content, fab){
     var paceNote = rollingPace && rollingPace.delta < -0.75 ? 'Снижение быстрее 0,75 кг/нед: не усиливай дефицит, проверь силовые показатели и достаточность питания.' : 'Темп снижения не показывает явного чрезмерного ускорения.';
     var maintenanceResult = estimateMaintenanceKcal();
     var maintenanceEstimate = maintenanceResult && maintenanceResult.kcal ? maintenanceResult.kcal : null;
-    var confidenceText = maintenanceResult ? (' · надёжность: '+(maintenanceResult.confidence==='high'?'выше средней':'ориентировочная')+' · расчёт по 14 и 30 дням') : '';
+    var confidenceText = maintenanceResult ? (' · надёжность: '+(maintenanceResult.confidence==='high'?'выше средней':'ориентировочная')+' · расчёт по 30 и 45 дням') : '';
     var maintenanceNote = maintenanceEstimate ? 'Одна оценка поддержания: около '+maintenanceEstimate+' ккал/день'+confidenceText+'. Не меняем цель автоматически.' : 'Для оценки поддержания нужны данные примерно за 30 дней: не менее 24 дней питания и 4 взвешиваний.';
     weeklyNutritionInsight = '<div class="section-title">Питание · контроль недели</div><div class="card"><div class="entry"><div class="name">Средний жир</div><div class="kcal">'+avgF+' г/день</div></div><div class="entry"><div class="name">Оценка поддержания</div><div class="kcal">'+(maintenanceEstimate||'—')+' ккал</div></div><div style="font-size:12px;color:var(--muted);line-height:1.45;">'+fatFloorNote+' '+paceNote+' '+maintenanceNote+'</div></div>';
   }

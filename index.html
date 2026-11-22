@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 4">
+  <div class="app-build-tag" aria-label="Версия приложения 5">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 4</span>
+    <span class="app-build-version">ВЕРСИЯ 5</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -4339,7 +4339,7 @@ function collectAllData(){
   try{if(_storageOk){for(var pi=0;pi<localStorage.length;pi++){var pk=localStorage.key(pi);if(pk&&pk.indexOf('planCustom:')===0)planCustom[pk.slice(11)]=1;}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('planCustom:')===0&&_memStore[k])planCustom[k.slice(11)]=1;});
   return {
-    version: 9, appVersion: 4,
+    version: 9, appVersion: 5,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,

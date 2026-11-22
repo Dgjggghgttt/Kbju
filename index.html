@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v44</title>
+<title>КБЖУ — дневник v3</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v44">
-<meta name="application-version" content="2">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v3">
+<meta name="application-version" content="3">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 34">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 2</span>
+    <span class="app-build-version">ВЕРСИЯ 3</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -305,8 +305,8 @@ function sSet(key,value){
 var products = [];
 var goals = {
   // Рекомендация: сохранение мышц при умеренном дефиците
-  kcal: 1500, protein: 150, fat: 45, carbs: 125,
-  trainKcal: 1500, trainProtein: 150, trainFat: 45, trainCarbs: 125,
+  kcal: 1500, protein: 154, fat: 50, carbs: 108,
+  trainKcal: 1500, trainProtein: 154, trainFat: 50, trainCarbs: 108,
   targetWeight: null, maintenanceKcal: 2000,
   fiberTarget: 28,
   vegFruitTarget: 500,
@@ -346,12 +346,16 @@ function bodyFatPercent(){
   return isFinite(v)&&v>=3&&v<=60?v:18;
 }
 function macrosFromDeficitPlan(planKcal, mode){
-  var kg=bodyKgNow()||77, bf=bodyFatPercent(), lean=kg*(1-bf/100);
-  var protein=Math.round(lean*2);
-  var fat=mode==='supercut'?30:((mode==='maintain'||mode==='bulk')?50:45);
+  // Белок: 2 г на каждый кг текущей массы тела. Жиры: фиксированный минимум 50 г.
+  // Калорийность режима не меняем: углеводы заполняют остаток после белка и жиров.
+  var kg=bodyKgNow()||77;
+  var latest=(weightLog||[]).filter(function(w){return w&&w.kg>0;}).sort(function(a,b){return a.date.localeCompare(b.date);});
+  if(latest.length) kg=Number(latest[latest.length-1].kg)||kg;
+  var protein=Math.round(kg*2);
+  var fat=50;
   var kcal=Math.max(0,Math.round(planKcal));
   var carbs=Math.max(0,Math.floor((kcal-protein*4-fat*9)/4));
-  return {kcal:protein*4+fat*9+carbs*4,protein:protein,fat:fat,carbs:carbs,lean:lean};
+  return {kcal:protein*4+fat*9+carbs*4,protein:protein,fat:fat,carbs:carbs,lean:kg};
 }
 function autoGoalPlan(mode){
   var e=estimateMaintenanceKcal(), maintenance=(e&&e.kcal)||goals.maintenanceKcal||2000, kg=bodyKgNow()||77;
@@ -1448,6 +1452,14 @@ function init(){
     dayTemplate = sGet('dayTemplate', null);
     mealTemplates = sGet('mealTemplates', []); if(!Array.isArray(mealTemplates)) mealTemplates = [];
     weightLog = w || [];
+    // Применяем новые цели и к уже существующим профилям, не меняя их калорийность.
+    var baseMacros = macrosFromDeficitPlan(goals.kcal || 1500, goals.autoMode || 'cut');
+    goals.protein = baseMacros.protein; goals.fat = 50; goals.carbs = baseMacros.carbs;
+    var trainingKcal = goals.trainKcal || goals.kcal || 1500;
+    var trainingMacros = macrosFromDeficitPlan(trainingKcal, goals.autoMode || 'cut');
+    goals.trainKcal = trainingKcal; goals.trainProtein = trainingMacros.protein;
+    goals.trainFat = 50; goals.trainCarbs = trainingMacros.carbs;
+    sSet('goals', goals);
     measureLog = Array.isArray(ml) ? ml : [];
     creatineLog = cr && typeof cr === 'object' ? cr : {};
     exercises = Array.isArray(ex) ? ex : [];
@@ -5182,7 +5194,7 @@ function openGoalsForm(){
       </label>
       <div class="card" style="padding:10px 12px;margin:10px 0 12px;font-size:12px;line-height:1.45;color:var(--muted);">
         <b style="color:var(--ink);">Правила расчёта</b><br>
-        Белок — 2 г на кг безжировой массы. Жиры: сушка — 45 г в среднем; супер-сушка — не более 30 г в среднем; поддержание и массонабор — 50 г в среднем. Углеводы заполняют оставшуюся калорийность. Среднее жиров контролируется по неделе.
+        Белок — 2 г на кг текущей массы тела. Жиры — 50 г ежедневно для любого режима. Углеводы заполняют оставшуюся калорийность. Калорийность режима не меняется.
       </div>
       <div class="sheet-actions"><button class="btn ghost" id="cancelBtn">Отмена</button><button class="btn primary" id="saveBtn">Сохранить</button></div>
     </div></div>`;
@@ -5191,8 +5203,8 @@ function openGoalsForm(){
     if(isFinite(bf)&&bf>=3&&bf<=60)goals.bodyFatPct=bf;
     var pl=autoGoalPlan(m), mm=macrosFromDeficitPlan(pl.kcal,m);
     var labels={cut:'Сушка',supercut:'Супер-сушка',maintain:'Поддержание',bulk:'Массонабор',recomp:'Рекомпозиция тела'};
-    var fatText=m==='supercut'?'не более 30 г в среднем':('около '+mm.fat+' г в среднем');
-    document.getElementById('autoGoalsView').innerHTML='<div style="font-size:13px;color:var(--muted);">'+labels[m]+'</div><div style="font-size:22px;font-weight:700;margin:2px 0 10px;">'+mm.kcal+' ккал</div><div style="font-size:13px;">Б '+mm.protein+' г · Ж '+mm.fat+' г · У '+mm.carbs+' г</div><div style="font-size:13px;color:var(--muted);margin-top:8px;">Поддержание: <b style="color:var(--ink);">'+Math.round(pl.maintenance)+' ккал</b></div><div style="font-size:11px;color:var(--muted);margin-top:3px;">'+pl.rate+' · безжировая масса ≈ '+mm.lean.toFixed(1)+' кг · жиры '+fatText+'</div>';
+    var fatText='50 г ежедневно';
+    document.getElementById('autoGoalsView').innerHTML='<div style="font-size:13px;color:var(--muted);">'+labels[m]+'</div><div style="font-size:22px;font-weight:700;margin:2px 0 10px;">'+mm.kcal+' ккал</div><div style="font-size:13px;">Б '+mm.protein+' г · Ж '+mm.fat+' г · У '+mm.carbs+' г</div><div style="font-size:13px;color:var(--muted);margin-top:8px;">Поддержание: <b style="color:var(--ink);">'+Math.round(pl.maintenance)+' ккал</b></div><div style="font-size:11px;color:var(--muted);margin-top:3px;">'+pl.rate+' · масса тела '+mm.lean.toFixed(1)+' кг · жиры '+fatText+'</div>';
   }
   document.getElementById('gAutoMode').onchange=refresh;
   document.getElementById('gBodyFat').oninput=refresh;

@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="КБЖУ v9">
-<meta name="application-version" content="9">
+<meta name="application-version" content="10">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 6">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 9</span>
+    <span class="app-build-version">ВЕРСИЯ 10</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -745,6 +745,9 @@ function suggestNextSession(last, name){
   if(bw){
     if(minRir != null && minRir <= 2) return {weight:last.weight,sets:sets.join('/'),text:'Подтягивания или другое упражнение с собственным весом дались тяжело (RIR 0–2). Повтори тот же объём; не добавляй повторы через силу.'};
     var bodyNext = sets.slice();
+    // Ровные подходы: +1 в первый. Падающая лесенка: +1 в последний.
+    // При неровном/смешанном результате добавляем ровно 1 повтор в первый подход;
+    // никогда не перескакиваем сразу с 3/4/1 на 5/4/3.
     var descending = bodyNext.length>1 && bodyNext.every(function(v,i,a){return i===0 || a[i-1]>=v;});
     var addIndex = descending ? bodyNext.length-1 : 0;
     bodyNext[addIndex] = Math.min(15, bodyNext[addIndex] + 1);
@@ -785,13 +788,16 @@ function exerciseMatchKey(name){
 /** Последняя реальная (не только план) запись упражнения до date */
 function getLastRealSession(exerciseName, beforeDate){
   var hist = collectExerciseHistory(exerciseName);
-  var prev = hist.filter(function(h){
+  var eligible = hist.filter(function(h){
     if(beforeDate && h.date >= beforeDate) return false;
-    // пропускаем пустые «только план»; собственный вес допустим без внешнего отягощения
-    if(h.planned && !h.done) return false;
-    return h.weight != null || isBodyweightName(h.name) && !!h.sets;
+    if(!h.sets || !String(h.sets).trim()) return false;
+    return h.weight != null || isBodyweightName(h.name);
   });
-  return prev.length ? prev[prev.length-1] : null;
+  // Факт всегда приоритетнее старого/перенесённого плана. Иначе план среды мог
+  // брать цель из старой среды, игнорируя завершённую тренировку понедельника.
+  var completed = eligible.filter(function(h){ return h.done === true; });
+  var pool = completed.length ? completed : eligible.filter(function(h){ return h.planned !== true; });
+  return pool.length ? pool[pool.length-1] : null;
 }
 
 function weekdayOf(date){
@@ -1039,7 +1045,7 @@ function collectExerciseHistory(exerciseName){
         var reps = parseTotalReps(w.sets||'');
         var bodyweight = isBodyweightName(w.name);
         var volume = bodyweight ? reps : w.weight * (reps > 0 ? reps : 1);
-        pts.push({date:date, weight:w.weight, bodyweight:bodyweight, sets:w.sets||'', reps:reps, volume:volume, rir:w.rir==null?null:+w.rir, planned:!!w.planned, done:!!w.done});
+        pts.push({date:date, weight:bodyweight?null:w.weight, bodyweight:bodyweight, sets:w.sets||'', reps:reps, volume:volume, rir:w.rir==null?null:+w.rir, planned:!!w.planned, done:!!w.done});
       }
     });
   }
@@ -2295,10 +2301,10 @@ function openExerciseGuide(name){
   document.getElementById('ov').onclick=function(e){if(e.target.id==='ov')closeModal();};
 }
 function openExerciseMuscleBreakdown(workout){
-  var contribution=effectiveMuscleSets(workout),profile=exerciseMuscleProfile(workout.name),root=document.getElementById('modalRoot'),minSets=8;
+  var contribution=effectiveMuscleSets(workout),profile=exerciseMuscleProfile(workout.name),root=document.getElementById('modalRoot');
   var primary=profile.primary||[], secondary=(profile.secondary||[]).map(function(x){return x[0];});
-  var rows=Object.keys(contribution).map(function(m){var sets=contribution[m],pct=Math.round(sets/minSets*100),direct=primary.indexOf(m)>=0;return {name:m,sets:sets,pct:pct,direct:direct};}).sort(function(a,b){return b.pct-a.pct;});
-  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>'+escapeHTML(workout.name||'Упражнение')+'</h2><div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Вклад упражнения в недельный минимум. Основные мышцы получают полный зачёт, вспомогательные — частичный.</div>'+(rows.length?rows.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:11px;color:var(--muted)">'+(x.direct?'Основная мышца':'Косвенная нагрузка')+' · '+round(x.sets)+' эффективных подходов</div></div><div class="kcal">'+x.pct+'%</div></div>';}).join(''):'<div class="empty">Нет данных о мышцах для этого упражнения</div>')+'<button class="btn primary" id="closeMuscles" style="width:100%;margin-top:12px;">Закрыть</button></div></div>';
+  var rows=Object.keys(contribution).map(function(m){var sets=contribution[m],pct=muscleMevPercent(m,sets),direct=primary.indexOf(m)>=0;return {name:m,sets:sets,pct:pct,direct:direct};}).sort(function(a,b){return b.pct-a.pct;});
+  root.innerHTML='<div class="overlay" id="ov"><div class="sheet"><h2>'+escapeHTML(workout.name||'Упражнение')+'</h2><div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Вклад упражнения относительно MEV. Основные мышцы получают полный зачёт, вспомогательные — частичный.</div>'+(rows.length?rows.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:11px;color:var(--muted)">'+(x.direct?'Основная мышца':'Косвенная нагрузка')+' · '+round(x.sets)+' эффективных подходов</div></div><div class="kcal">'+x.pct+'%</div></div>';}).join(''):'<div class="empty">Нет данных о мышцах для этого упражнения</div>')+'<button class="btn primary" id="closeMuscles" style="width:100%;margin-top:12px;">Закрыть</button></div></div>';
   document.getElementById('closeMuscles').onclick=closeModal;document.getElementById('ov').onclick=function(e){if(e.target.id==='ov')closeModal();};
 }
 function exercisePrimaryMuscle(n){
@@ -2978,11 +2984,11 @@ function renderWorkoutsTab(content,fab){
   }else{
   html+='<div class="card"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;">План на выбранный день. Фактические подходы сохраняются отдельно в журнале.</div>';
   if(rows.length){
-    html+=orderWorkoutRows(rows).map(function(w,i){var realIndex=rows.indexOf(w),last=getLastRealSession(w.name,currentDate),lastLine=last?'Прошлый раз: '+(isBodyweightName(w.name)?'собственный вес · ':(last.weight!=null?last.weight+' кг · ':''))+(last.sets||'—')+' · '+fmtDateHuman(last.date):'Пока нет выполненных записей';return '<div class="entry" style="flex-wrap:wrap;"><div class="name" style="flex:1;min-width:150px;">'+escapeHTML(w.name||'Упражнение')+'<div style="font-size:11px;color:var(--muted);">'+escapeHTML((isBodyweightName(w.name)?'собственный вес · ':(w.targetWeight!=null?w.targetWeight+' кг · ':''))+(w.targetSets||w.sets||'План не задан'))+'</div><div style="font-size:10px;color:var(--green);margin-top:3px;">'+escapeHTML(lastLine)+'</div></div><button class="btn ghost" data-wedit-index="'+realIndex+'">Изменить</button><button class="btn ghost" data-wreplace-index="'+realIndex+'">Заменить</button><button class="del" data-wdelete-index="'+realIndex+'">✕</button></div>';}).join('');
+    html+=orderWorkoutRows(rows).map(function(w,i){var realIndex=rows.indexOf(w),last=getLastRealSession(w.name,currentDate),lastLine=last?'Прошлый раз: '+(isBodyweightName(w.name)?'собственный вес · ':(last.weight!=null?last.weight+' кг · ':''))+(last.sets||'—')+' · '+fmtDateHuman(last.date):'Пока нет выполненных записей';return '<div class="entry" style="flex-wrap:wrap;"><div class="name" data-plan-muscle-index="'+realIndex+'" style="flex:1;min-width:150px;cursor:pointer;">'+escapeHTML(w.name||'Упражнение')+' <span style="color:var(--green);font-size:10px;">ⓘ мышцы</span><div style="font-size:11px;color:var(--muted);">'+escapeHTML((isBodyweightName(w.name)?'собственный вес · ':(w.targetWeight!=null?w.targetWeight+' кг · ':''))+(w.targetSets||w.sets||'План не задан'))+'</div><div style="font-size:10px;color:var(--green);margin-top:3px;">'+escapeHTML(lastLine)+'</div></div><button class="btn ghost" data-wedit-index="'+realIndex+'">Изменить</button><button class="btn ghost" data-wreplace-index="'+realIndex+'">Заменить</button><button class="del" data-wdelete-index="'+realIndex+'">✕</button></div>';}).join('');
   }else html+='<div class="empty">На этот день пока нет упражнений.</div>';
   html+='<button class="btn ghost" id="wAdd" style="width:100%;margin-top:8px;">＋ Добавить упражнение</button><button class="btn ghost" id="wSeed" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button><button class="btn ghost" id="wLibrary" style="width:100%;margin-top:6px;">База упражнений</button></div>';
   }
-   if(!dayFact.length&&rows.length)html+='<button class="btn ghost" id="cancelPlannedWorkout" style="width:100%;margin:0 0 8px;">Отменить тренировку</button>';
+   if(!dayFact.length&&rows.length)html+=planMevSummary()+'<button class="btn ghost" id="cancelPlannedWorkout" style="width:100%;margin:0 0 8px;">Отменить тренировку</button>';
    html+='<button class="btn ghost" id="workoutAddMeasure" style="width:100%;margin:0 0 8px;">＋ Замеры тела</button>';
   html+=workoutFlowCard();
   html+=workoutRestAnalysisCard()+renderTrainingHistoryBlock();
@@ -2992,6 +2998,7 @@ function renderWorkoutsTab(content,fab){
   content.innerHTML=html;fab.innerHTML='';
   bindWorkoutFlow();bindProgressPhotos();bindExerciseHistory();bindMissedWorkout();bindWorkoutSessionClock();
   content.querySelectorAll('[data-load-detail]').forEach(function(el){el.onclick=function(){var a=el.getAttribute('data-load-detail').split('|');openLoadDetail(a[0],a.slice(1).join('|'));};});
+  content.querySelectorAll('[data-plan-muscle-index]').forEach(function(el){el.onclick=function(){var ix=Number(el.getAttribute('data-plan-muscle-index')),w=(getWorkouts(currentDate)||[])[ix];if(w)openExerciseMuscleBreakdown(Object.assign({},w,{sets:w.targetSets||w.sets||'3x10'}));};});
   content.querySelectorAll('[data-edit-session]').forEach(function(b){b.onclick=function(e){e.preventDefault();e.stopPropagation();openTrainingSessionEditor(b.getAttribute('data-edit-session'));};});
   content.querySelectorAll('[data-training-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-training-date');render();};});
   var measureBtn=document.getElementById('workoutAddMeasure');if(measureBtn)measureBtn.onclick=function(){openMeasureForm(null);};
@@ -3923,6 +3930,15 @@ function openWeightGoalForm(){
     closeModal();
     render();
   };
+}
+
+
+var MUSCLE_MEV = {'Бицепс':4,'Брахиалис':4,'Плечевая':4,'Трицепс':4,'Грудь':6,'Широчайшие':6,'Верх спины':6,'Передняя дельта':4,'Средняя дельта':4,'Задняя дельта':4,'Предплечья':4,'Квадрицепс':6,'Задняя поверхность бедра':4,'Ягодицы':4,'Икры':4};
+function muscleMev(group){return MUSCLE_MEV[group]||4;}
+function muscleMevPercent(group, sets){return Math.round((+sets||0)/muscleMev(group)*100);}
+function planMevSummary(){
+  var load=weeklyMuscleLoad(7), groups=['Бицепс','Широчайшие','Грудь','Трицепс','Средняя дельта'];
+  return '<div class="card" style="margin-top:8px;padding:11px 13px;"><b>Недельный объём относительно MEV</b><div style="font-size:10px;color:var(--muted);margin:3px 0 8px;">Процент от минимального эффективного объёма для роста. Это стартовые ориентиры, а не индивидуально измеренные пороги.</div>'+groups.map(function(g){var v=round(load[g]||0),p=muscleMevPercent(g,v);return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin:5px 0;"><span>'+g+'</span><b>'+p+'% · '+v+'/'+muscleMev(g)+' эфф. подходов</b></div>';}).join('')+'</div>';
 }
 
 function exerciseMuscleProfile(name){

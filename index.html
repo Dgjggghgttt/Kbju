@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v7</title>
+<title>КБЖУ — дневник v8</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="КБЖУ v7">
-<meta name="application-version" content="7">
+<meta name="application-version" content="8">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 6">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 7</span>
+    <span class="app-build-version">ВЕРСИЯ 8</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -664,20 +664,20 @@ function parseTotalReps(setsStr){
 /* ---- расписание и шаблоны недели ---- */
 var WORKOUT_SCHEDULE = {1:'A', 3:'B', 5:'C'}; // 0=вс: Пн=A, Ср=B, Пт=C
 var WORKOUT_TEMPLATES = {
-  A: [ // Бицепс + грудь + спина
+  A: [ // Подтягивания → бицепс → обязательный жим гантелей
+    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'3/3/3'}},
     {name:'Сгибание рук со штангой', n:3, start:{weight:27, sets:'8/8/8'}},
-    {name:'Жим штанги лёжа на полу', n:4, start:{weight:27, sets:'12/12/12/12'}},
-    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'1/1/1'}}
+    {name:'Жим гантелей лёжа на полу', n:4, start:{weight:13.5, sets:'12/12/12/12'}}
   ],
-  B: [ // Бицепс + трицепс + спина
+  B: [ // Подтягивания первыми; жим гантелей вместо любого жима штанги лёжа на полу
+    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'3/3/3'}},
     {name:'Молотковые сгибания гантелей', n:3, start:{weight:9, sets:'12/12/12'}},
-    {name:'Жим штанги лёжа на полу узким хватом', n:4, start:{weight:24, sets:'10/10/10/10'}},
-    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'1/1/1'}}
+    {name:'Жим гантелей лёжа на полу', n:4, start:{weight:13.5, sets:'12/12/12/12'}}
   ],
-  C: [ // Бицепс + грудь + спина
+  C: [
+    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'3/3/3'}},
     {name:'Попеременное сгибание гантелей', n:3, start:{weight:9, sets:'8/8/8'}},
-    {name:'Жим штанги лёжа на полу', n:4, start:{weight:27, sets:'12/12/12/12'}},
-    {name:'Подтягивания обратным хватом', n:3, bw:true, start:{sets:'1/1/1'}}
+    {name:'Жим гантелей лёжа на полу', n:4, start:{weight:13.5, sets:'12/12/12/12'}}
   ]
 };
 var WORKOUT_DAY_TITLES = {A:'Бицепс + грудь + спина', B:'Бицепс + трицепс + спина', C:'Бицепс + грудь + спина'};
@@ -745,7 +745,8 @@ function suggestNextSession(last, name){
   if(bw){
     if(minRir != null && minRir <= 2) return {weight:last.weight,sets:sets.join('/'),text:'Подтягивания или другое упражнение с собственным весом дались тяжело (RIR 0–2). Повтори тот же объём; не добавляй повторы через силу.'};
     var bodyNext = sets.slice();
-    var addIndex = bodyNext.length>1 && bodyNext[0] > bodyNext[1] ? bodyNext.length-1 : 0;
+    var descending = bodyNext.length>1 && bodyNext.every(function(v,i,a){return i===0 || a[i-1]>=v;});
+    var addIndex = descending ? bodyNext.length-1 : 0;
     bodyNext[addIndex] = Math.min(15, bodyNext[addIndex] + 1);
     return {weight:last.weight, sets:bodyNext.join('/'), text:'Добавь один повтор по распределению нагрузки: '+bodyNext.join('/')+'. Когда все подходы станут ровными и техника сохранится, добавляй следующий повтор.'};
   }
@@ -772,9 +773,7 @@ function suggestNextSession(last, name){
 function exerciseMatchKey(name){
   var n = (name||'').toLowerCase().replace(/[ё]/g,'е').replace(/[^а-яa-z0-9]+/g,' ').trim();
   if(/подтяг/.test(n)) return 'pullup';
-  if(/жим/.test(n) && /гантел/.test(n) && /(леж|полу|пол|floor)/.test(n)) return 'floorpress_dumbbell';
-  if(/жим/.test(n) && /штанг/.test(n) && /(леж|полу|пол|floor)/.test(n)) return 'floorpress_barbell';
-  if(/жим/.test(n) && /(полу|пол|floor)/.test(n)) return 'floorpress_other';
+  if(/жим/.test(n) && /(леж|полу|пол|floor)/.test(n)) return 'floorpress_dumbbell';
   if(/жим/.test(n) && /(стоя|вверх|плеч)/.test(n)) return 'overheadpress';
   if(/сгиб|подъем|подьем/.test(n) && /штанг/.test(n)) return 'barbellcurl';
   if(/молот/.test(n)) return 'hammercurl';
@@ -870,8 +869,12 @@ function rememberExerciseReplacement(oldName,newName){
 function planForExercise(item, date){
   var last = getLastRealSession(item.name, date);
   var next = null, fromDate = null, startNote = '';
-  if(last && (last.weight != null || item.bw || isBodyweightName(item.name)) && !setsBroken(last.sets)){
-    next = suggestNextSession(last, item.name);
+  if(last && (last.weight != null || item.bw || isBodyweightName(item.name)) && (!setsBroken(last.sets) || item.bw || isBodyweightName(item.name))){
+    if(last.planned && !last.done){
+      next={weight:last.weight,sets:last.sets,text:'Перенос последней цели: предыдущая тренировка ещё не выполнена, поэтому повторы не увеличиваются автоматически.'};
+    }else{
+      next = suggestNextSession(last, item.name);
+    }
     fromDate = last.date;
   }
   if(!next){
@@ -885,6 +888,7 @@ function planForExercise(item, date){
     };
     fromDate = last ? last.date : null;
   }
+  if(item.bw || isBodyweightName(item.name)){next.weight=bodyKgAtDate(date)||bodyKgNow()||next.weight;}
   if(next.weight!=null&&!isBodyweightName(item.name))next.weight=equipmentSnapWeight(item.name,+next.weight);
   var fitted = fitSets(next.sets, item.n);
   var recentLoad=weeklyMuscleLoadBefore(date,7), prof=exerciseMuscleProfile(item.name);
@@ -1193,6 +1197,17 @@ function getWorkouts(date){
   if(workoutCache[date]) return workoutCache[date];
   var w = sGet('workout:'+date, []);
   workoutCache[date] = Array.isArray(w) ? w : [];
+  var changed=false;
+  workoutCache[date].forEach(function(row){
+    if(row && !row.done && /жим/.test(row.name||'') && /штанг/.test(row.name||'') && /(леж|полу|пол)/.test(row.name||'')){
+      row.name='Жим гантелей лёжа на полу';
+      row.weight=13.5; row.targetWeight=13.5;
+      row.targetSets=row.targetSets||'12/12/12/12';
+      row.advice='Замена жима штанги на полу жимом гантелей. 13,5 кг на каждую гантель.';
+      changed=true;
+    }
+  });
+  if(changed)sSet('workout:'+date,workoutCache[date]);
   return workoutCache[date];
 }
 function saveWorkouts(date, list){
@@ -2179,7 +2194,6 @@ var EXERCISE_LIBRARY = [
 {id:'hammer-curl',name:'Молотковые сгибания гантелей',gear:'Гантели',muscle:'Брахиалис и бицепс',level:'Начальный',group:'Бицепс',kind:'hammer',rom:'Внизу почти полностью выпрями локоть; вверху согни его без разворота кисти и движения плеча.',steps:['Держи гантели вдоль тела нейтральным хватом: ладони обращены друг к другу.','Согни локти и подними гантели, сохраняя нейтральное положение кистей.','Медленно опусти гантели в исходное положение.'],cues:['Держи локти около корпуса.','Не раскачивай туловище.','Не поднимай плечи к ушам.'],image:'https://diary-workout.ru/stc/exr/32/img1280x800.jpg',source:'https://diary-workout.ru/exercises/32/'},
 {id:'concentration-curl',name:'Концентрированное сгибание гантели',gear:'Гантели',muscle:'Бицепс',level:'Начальный',group:'Бицепс',kind:'curl',rom:'Разгибай локоть почти полностью и сгибай до максимума без отрыва плеча от внутренней стороны бедра.',steps:['Сядь, слегка наклони корпус и упрись локтем рабочей руки во внутреннюю сторону бедра.','Согни локоть, поднимая гантель к плечу.','Опусти гантель медленно, сохраняя неподвижное плечо.'],cues:['Не раскачивай корпус.','Не дави локтем чрезмерно в бедро.','Используй вес, который позволяет контролировать нижнюю фазу.'],image:'https://diary-workout.ru/stc/exr/26/img1280x800.jpg',source:'https://diary-workout.ru/exercises/26/'},
 {id:'overhead-triceps-db',name:'Разгибание гантели из-за головы одной рукой',gear:'Гантели',muscle:'Трицепс',level:'Начальный',group:'Трицепс',kind:'overhead_triceps',rom:'Согни локоть, опуская гантель за голову; затем разогни руку вверх, сохраняя плечо неподвижным.',steps:['Сядь устойчиво. Возьми гантель одной рукой и подними её над головой.','Удерживая плечо вертикально, согни локоть и опусти гантель за голову.','Разогни локоть и верни гантель в верхнее положение.'],cues:['Не прогибай поясницу.','Не разводи локти насильно и не своди их через дискомфорт.','Не превращай движение в жим плечами.'],image:'https://diary-workout.ru/stc/exr/49/img1280x800.jpg',source:'https://diary-workout.ru/exercises/49/'},
-{id:'floorpress-barbell',name:'Жим штанги лёжа на полу',gear:'Штанга',muscle:'Грудь',level:'Средний',group:'Грудь',kind:'floorpress',rom:'Опускай локти до мягкого касания пола; не отбивай руки и не пытайся увеличить амплитуду прогибом.',steps:['Ляг на пол, согни ноги, собери лопатки. Удерживай штангу над нижней частью груди.','Опускай гриф контролируемо, пока плечи и трицепсы мягко не коснутся пола.','Выжми штангу вверх, сохраняя запястья над локтями.'],cues:['Используй безопасный способ снять и вернуть штангу.','Не отбивай локти от пола.','Не допускай чрезмерного прогиба поясницы.'],image:'',source:'https://diary-workout.ru/exercises/'},
 {id:'floorpress-db',name:'Жим гантелей лёжа на полу',gear:'Гантели',muscle:'Грудь',level:'Начальный',group:'Грудь',kind:'floorpress',rom:'Опускай плечи до мягкого касания пола; не проваливай локти ниже уровня корпуса.',steps:['Ляг на пол, согни ноги, удерживай гантели над грудью нейтральным или прямым хватом.','Опускай локти к полу под контролем.','Выжми гантели вверх, не сталкивая их резко друг с другом.'],cues:['Не отбивай локти от пола.','Сохраняй устойчивые запястья.','Выбирай вес, который можешь безопасно поднять и опустить самостоятельно.'],image:'',source:'https://diary-workout.ru/exercises/'},
 {id:'close-floorpress',name:'Узкий жим штанги лёжа на полу',gear:'Штанга',muscle:'Трицепс',level:'Средний',group:'Трицепс',kind:'closepress',rom:'Опускай гриф до мягкого касания плечами/трицепсами пола; запястья остаются над локтями.',steps:['Ляг на пол и возьми штангу хватом немного уже обычного жима, но без дискомфорта в кистях.','Опускай гриф к нижней части груди, локти держи ближе к корпусу.','Выжми гриф вверх, не отбивая руки от пола.'],cues:['Не используй чрезмерно узкий хват.','Не заламывай запястья.','Не ударяй локтями о пол.'],image:'',source:'https://diary-workout.ru/exercises/'},
 {id:'barbell-reverse-curl',name:'Обратное сгибание рук со штангой',gear:'Штанга',muscle:'Предплечья и брахиалис',level:'Средний',group:'Бицепс',kind:'curl',rom:'Опускай штангу почти до полного разгибания локтей; поднимай без раскачивания корпуса.',steps:['Встань прямо, возьми штангу хватом сверху примерно на ширине плеч.','Согни локти и подними гриф к нижней части груди, удерживая локти около корпуса.','Медленно опусти штангу в исходное положение.'],cues:['Не раскачивай туловище.','Держи кисти прямыми.','Не используй инерцию и чрезмерный вес.'],image:'https://diary-workout.ru/stc/exr/31/img1280x800.jpg',source:'https://diary-workout.ru/exercises/31/'},
@@ -2212,8 +2226,8 @@ function exerciseGuideData(name){
   var n=(name||'').toLowerCase();
   if(/разгиб.*гантел.*(из-за|за голов)|из-за головы/.test(n)) return {title:'Разгибание гантели из-за головы',steps:['Встань или сядь устойчиво. Возьми одну гантель обеими руками за верхний диск и подними над головой.','Согни локти, опуская гантель за голову. Плечи удерживай примерно вертикально, локти направлены вперёд и слегка внутрь.','Разогни локти и верни гантель вверх, не меняя положения плеч.'],cues:['Двигай предплечьями в локтевых суставах; не превращай движение в жим плечами.','Не разводи локти чрезмерно широко, но и не пытайся насильно свести их.','Не прогибай поясницу; напряги живот и ягодицы.','Используй безболезненную глубину опускания.'],kind:'overhead_triceps'};
   if(/подтяг/.test(n)) {var sup=/обратн|нижн|chin/.test(n);return {title:sup?'Подтягивания обратным хватом':'Подтягивания прямым хватом',steps:[sup?'Повисни обратным хватом: ладони к себе, кисти примерно на ширине плеч.':'Повисни прямым хватом: ладони от себя, хват немного шире плеч.', 'Начни движение лопатками, затем веди локти вниз и поднимай грудь к перекладине.','Опустись подконтрольно до комфортного почти полного разгибания рук.'],cues:['Не раскачивайся и не делай рывок ногами.','Не тянись подбородком отдельно от корпуса.','Если пока не получается подтянуться — используй контролируемые негативы или помощь ногами.'],kind:'pullup'};}
-  if(/жим/.test(n) && /(узк|трицепс)/.test(n)) return {title:'Жим штанги лёжа на полу узким хватом',steps:['Ляг на пол, согни ноги. Возьми гриф уже ширины плеч, кисти над локтями.','Опускай гриф к нижней части груди, локти ближе к корпусу.','Выжми гриф вверх, не ударяя локтями о пол.'],cues:['Не делай хват чрезмерно узким: кисти остаются комфортно.','Запястья держи над локтями.','Не отбивай руки от пола; движение контролируемое.'],kind:'closepress'};
-  if(/жим/.test(n) && /(полу|пол)/.test(n)) return {title:'Жим штанги лёжа на полу',steps:['Ляг на пол, лопатки собраны, гриф над нижней частью груди.','Опускай локти до мягкого касания пола.','Выжми штангу вверх, сохраняя контроль корпуса.'],cues:['Не отбивай локти от пола.','Кисти находятся над предплечьями.','Не прогибай поясницу чрезмерно.'],kind:'floorpress'};
+  if(/жим/.test(n) && /(узк|трицепс)/.test(n) && /гантел/.test(n)) return {title:'Жим гантелей лёжа на полу',steps:['Ляг на пол, согни ноги. Возьми гриф уже ширины плеч, кисти над локтями.','Опускай гриф к нижней части груди, локти ближе к корпусу.','Выжми гриф вверх, не ударяя локтями о пол.'],cues:['Не делай хват чрезмерно узким: кисти остаются комфортно.','Запястья держи над локтями.','Не отбивай руки от пола; движение контролируемое.'],kind:'closepress'};
+  if(/жим/.test(n) && /(полу|пол)/.test(n) && /гантел/.test(n)) return {title:'Жим гантелей лёжа на полу',steps:['Ляг на пол, лопатки собраны, гриф над нижней частью груди.','Опускай локти до мягкого касания пола.','Выжми штангу вверх, сохраняя контроль корпуса.'],cues:['Не отбивай локти от пола.','Кисти находятся над предплечьями.','Не прогибай поясницу чрезмерно.'],kind:'floorpress'};
   if(/молот/.test(n)) return {title:'Молотковые сгибания гантелей',steps:['Стой ровно, гантели у бёдер, ладони смотрят друг на друга.','Согни локти, поднимая гантели без разворота кистей.','Медленно опусти гантели в исходное положение.'],cues:['Локти держи около корпуса.','Не раскачивай туловище.','Опускай медленнее, чем поднимаешь.'],kind:'hammer'};
   if(/поперем|гантел/.test(n) && /сгиб|бицепс/.test(n)) return {title:'Попеременное сгибание гантелей',steps:['Опусти гантели вдоль тела, ладони смотрят вперёд или друг на друга.','Согни одну руку, удерживая плечо неподвижным.','Опусти гантель и повтори другой рукой.'],cues:['Не выводи локоть вперёд.','Не помогай корпусом.','Не бросай гантель вниз.'],kind:'curl'};
   if(/сгиб|бицепс/.test(n)) return {title:'Сгибание рук со штангой',steps:['Стой ровно, хват чуть шире таза, локти около корпуса.','Подними гриф сгибанием локтей, не двигая плечами.','Плавно опусти гриф до почти полного разгибания рук.'],cues:['Не раскачивай спину.','Не уводи локти далеко вперёд.','Не заламывай кисти.'],kind:'curl'};
@@ -4307,7 +4321,7 @@ function collectAllData(){
   try{if(_storageOk){for(var pi=0;pi<localStorage.length;pi++){var pk=localStorage.key(pi);if(pk&&pk.indexOf('planCustom:')===0)planCustom[pk.slice(11)]=1;}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('planCustom:')===0&&_memStore[k])planCustom[k.slice(11)]=1;});
   return {
-    version: 10, appVersion: 7,
+    version: 10, appVersion: 8,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,

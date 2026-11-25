@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v14</title>
+<title>КБЖУ — дневник v15</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v14">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v15">
 <meta name="application-version" content="14">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 14">
+  <div class="app-build-tag" aria-label="Версия приложения 15">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 14</span>
+    <span class="app-build-version">ВЕРСИЯ 15</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -4486,7 +4486,7 @@ function importData(ev){
   reader.onload = async function(){
     try{
       var data = JSON.parse(reader.result);
-      if(!data || typeof data !== 'object' || Array.isArray(data) || (data.version!=null && (!Number.isFinite(+data.version) || +data.version>10))) throw new Error('bad backup');
+      if(!data || typeof data !== 'object' || Array.isArray(data) || (data.version!=null && (!Number.isFinite(+data.version) || +data.version>12))) throw new Error('bad backup');
       var arrayKeys = ['products','weightLog','measureLog','favorites','exercises','mealTemplates'];
       arrayKeys.forEach(function(k){ if(data[k] != null && !Array.isArray(data[k])) throw new Error('bad '+k); });
       ['diary','workouts','bike','goals','waterLog','equipmentConfig','creatineLog','trainingDays','mealPlan','shopChecked','inventory','dayCompleteness','dayTemplate','recovery','muscleVolumeTargets'].forEach(function(k){

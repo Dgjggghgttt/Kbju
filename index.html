@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v9</title>
+<title>КБЖУ — дневник v11</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v9">
-<meta name="application-version" content="10">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v11">
+<meta name="application-version" content="11">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 6">
+  <div class="app-build-tag" aria-label="Версия приложения 11">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 10</span>
+    <span class="app-build-version">ВЕРСИЯ 11</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -767,8 +767,9 @@ function suggestNextSession(last, name){
     return {weight:nextW, sets:nextSets, text:'Все подходы достигли 12 повторов. Следующий шаг: '+nextW+' кг ('+stepTxt+') и '+nextSets+'. Если техника ухудшится — оставь прежний вес.'};
   }
 
-  // При неравных подходах добавляем повтор только там, где его не хватает.
-  var next = sets.slice(), addIndex=sets.length>1 && sets[0]>sets[1] ? sets.length-1 : 0;
+  // Добавляем ровно один повтор в самый слабый подход; при равенстве — в первый.
+  var next = sets.slice(), addIndex=0;
+  for(var si=1;si<sets.length;si++){if(sets[si]<sets[addIndex])addIndex=si;}
   next[addIndex]=Math.min(12,next[addIndex]+1);
   return {weight:last.weight, sets:next.join('/'), text:'Добавь один повтор в выбранный подход: '+last.weight+' кг · '+next.join('/')+'. Остальные подходы пока оставь без изменений.'};
 }
@@ -2333,7 +2334,15 @@ function replaceWorkoutExercise(identifier){
   root.querySelectorAll('[data-rep-index]').forEach(function(btn){btn.addEventListener('click',function(ev){
     ev.preventDefault();ev.stopPropagation();var pick=Number(btn.getAttribute('data-rep-index')),name=choices[pick];if(!name)return;
     var latest=(getWorkouts(date)||[]).slice();if(idx>=latest.length){showToast('Список упражнений изменился — обнови экран');closeModal();render();return;}
-    var oldName=latest[idx].name;rememberExerciseReplacement(oldName,name);latest[idx]=Object.assign({},latest[idx],{id:latest[idx].id||uid(),name:name,auto:false,manual:true,fromDate:null,tpl:null,weight:null,sets:'',done:false,planned:true,targetWeight:null,targetSets:latest[idx].targetSets||'3x10',advice:'Аналогичная замена. Начни с лёгкого веса и подбери нагрузку заново.'});
+    var oldName=latest[idx].name;rememberExerciseReplacement(oldName,name);
+    // Пересчитываем цель исключительно по истории выбранного упражнения.
+    // Запрещено переносить targetSets/targetWeight предыдущего упражнения.
+    var replacementLast=getLastRealSession(name,date);
+    var replacementPlan=replacementLast?suggestNextSession(replacementLast,name):null;
+    var replacementSets=replacementPlan&&replacementPlan.sets?replacementPlan.sets:'8/8/8';
+    var replacementWeight=replacementPlan&&replacementPlan.weight!=null?replacementPlan.weight:null;
+    var replacementAdvice=replacementPlan&&replacementPlan.text?replacementPlan.text:'Истории этого упражнения пока нет. Начни с лёгкой нагрузки, оставляя 2–3 повтора в запасе.';
+    latest[idx]=Object.assign({},latest[idx],{id:latest[idx].id||uid(),name:name,auto:false,manual:true,fromDate:replacementLast?replacementLast.date:null,tpl:null,weight:replacementWeight,sets:'',done:false,inProgress:false,planned:true,targetWeight:replacementWeight,targetSets:replacementSets,advice:replacementAdvice});
     markPlanCustom(date);saveWorkouts(date,latest);
     var flow=sGet(workoutFlowKey(date),null);if(flow&&flow.status!=='finished'&&Array.isArray(flow.queue)){flow.queue.forEach(function(q){if(String(q.id)===String(current.id)){q.name=name;q.actualReps=null;}});flow.completed=flow.queue.filter(function(q){return q.actualReps!=null;}).length;sSet(workoutFlowKey(date),flow);}
     var check=(getWorkouts(date)||[])[idx];if(!check||check.name!==name){showToast('Не удалось сохранить замену');return;}
@@ -4327,7 +4336,7 @@ function collectAllData(){
   try{if(_storageOk){for(var pi=0;pi<localStorage.length;pi++){var pk=localStorage.key(pi);if(pk&&pk.indexOf('planCustom:')===0)planCustom[pk.slice(11)]=1;}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('planCustom:')===0&&_memStore[k])planCustom[k.slice(11)]=1;});
   return {
-    version: 10, appVersion: 8,
+    version: 11, appVersion: 11,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,

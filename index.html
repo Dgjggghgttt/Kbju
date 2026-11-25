@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v11</title>
+<title>КБЖУ — дневник v12</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v11">
-<meta name="application-version" content="11">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v12">
+<meta name="application-version" content="12">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -217,7 +217,7 @@
   <div class="app-build-tag" aria-label="Версия приложения 11">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 11</span>
+    <span class="app-build-version">ВЕРСИЯ 12</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -2056,7 +2056,7 @@ function openWorkoutForm(existing){
   }
   // подставляем цель, если факт ещё пуст
   var factW = existing && existing.done && existing.weight != null ? existing.weight : (existing && !existing.planned ? existing.weight : (existing && existing.weight != null && existing.sets ? existing.weight : (existing && existing.targetWeight != null ? existing.targetWeight : (existing && existing.weight != null ? existing.weight : ''))));
-  var factS = existing && existing.sets ? existing.sets : (existing && existing.targetSets ? existing.targetSets : '');
+  var factS = existing && existing.sets ? existing.sets : (existing && existing.targetSets ? existing.targetSets : (existing ? '' : '8/8/8'));
   var goalLine = '';
   if(existing && (existing.targetSets || existing.targetWeight != null)){
     goalLine = '<div class="card" style="padding:10px 12px;margin-bottom:10px;font-size:13px;line-height:1.4;">'+
@@ -2067,15 +2067,15 @@ function openWorkoutForm(existing){
   root.innerHTML = `
     <div class="overlay" id="ov">
       <div class="sheet">
-        <h2>${existing ? 'Упражнение' : 'Упражнение'}</h2>
+        <h2>${existing ? 'Изменить упражнение' : 'Добавить упражнение в план'}</h2>
         ${goalLine}
         <div class="field">
           <label>Упражнение</label>
           <input type="text" id="woSearch" placeholder="Поиск или новое название…" value="${escapeHTML(selectedEx ? selectedEx.name : '')}">
         </div>
         <div class="search-list" id="woResults" style="max-height:140px;"></div>
-        <div class="field" style="margin-top:10px;"><label>Факт: вес, кг</label><input id="woWeight" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" pattern="[0-9]*[.,]?[0-9]*" step="0.5" placeholder="13" value="${factW}"></div>
-        <div class="field"><label>Факт: подходы / повторы</label><input id="woSets" type="text" placeholder="20/20/15" value="${factS}"></div>
+        <div class="field" style="margin-top:10px;"><label>${existing ? 'Факт: вес, кг' : 'Плановый вес, кг (если нужен)'}</label><input id="woWeight" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" pattern="[0-9]*[.,]?[0-9]*" step="0.5" placeholder="13" value="${factW}"></div>
+        <div class="field"><label>${existing ? 'Факт: подходы / повторы' : 'План: подходы / повторы'}</label><input id="woSets" type="text" placeholder="${existing ? '20/20/15' : '8/8/8'}" value="${factS}"></div>
         <details style="margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;">
           <summary style="font-size:13px;font-weight:600;cursor:pointer;">Дополнительно (необязательно)</summary>
           <div class="field" style="margin-top:10px;"><label>RIR по каждому подходу</label><input id="woRirSets" type="text" inputmode="numeric" placeholder="Например: 2/2/1" value="${existing && existing.rirBySet ? existing.rirBySet.join('/') : (existing && existing.rir != null && factS ? parseSetArray(factS).map(function(){return existing.rir;}).join('/') : '')}"></div>
@@ -2086,7 +2086,7 @@ function openWorkoutForm(existing){
         </details>
         <div class="sheet-actions">
           <button class="btn ghost" id="cancelBtn">Отмена</button>
-          <button class="btn primary" id="saveBtn">Сохранить факт</button>
+          <button class="btn primary" id="saveBtn">${existing ? 'Сохранить факт' : 'Добавить в план'}</button>
         </div>
       </div>
     </div>`;
@@ -2161,20 +2161,20 @@ function openWorkoutForm(existing){
       existing.feedback = fb ? fb.text : '';
       if(fb) showToast(fb.kind === 'weight' ? 'Следующий шаг: +вес' : 'Следующий шаг: +повторы');
     } else {
-      var row = {id:uid(), name:name, note:note, weight: isNaN(weight) ? null : weight, sets:sets, rirBySet:rirArr, rir:rirArr.length ? Math.min.apply(null,rirArr) : null, done: !!(sets && !isNaN(weight)), planned:false};
-      var last = getLastRealSession(name, currentDate);
-      var next = suggestNextSession(last || row, name);
-      if(next && !row.done){
-        row.targetWeight = next.weight;
-        row.targetSets = next.sets;
-        row.advice = next.text;
-        row.planned = true;
-      }
-      if(row.done){
-        var fb2 = feedbackAfterSession(row, next);
-        row.feedback = fb2 ? fb2.text : '';
-      }
+      // Новое упражнение добавляется именно в план выбранного дня.
+      // Оно не считается выполненным и не попадает в журнал до фактической записи подходов.
+      var plannedSets = sets || '8/8/8';
+      var row = {
+        id:uid(), name:name, note:note,
+        weight:null, sets:'',
+        rirBySet:[], rir:null,
+        done:false, planned:true, manual:true, auto:false,
+        targetWeight:isNaN(weight)?null:weight,
+        targetSets:plannedSets,
+        advice:'Добавлено вручную в план. Фактические подходы запишутся после начала тренировки.'
+      };
       list.push(row);
+      markPlanCustom(currentDate);
     }
     saveWorkouts(currentDate, list);
     closeModal();
@@ -4336,7 +4336,7 @@ function collectAllData(){
   try{if(_storageOk){for(var pi=0;pi<localStorage.length;pi++){var pk=localStorage.key(pi);if(pk&&pk.indexOf('planCustom:')===0)planCustom[pk.slice(11)]=1;}}}catch(e){}
   Object.keys(_memStore).forEach(function(k){if(k.indexOf('planCustom:')===0&&_memStore[k])planCustom[k.slice(11)]=1;});
   return {
-    version: 11, appVersion: 11,
+    version: 12, appVersion: 12,
     exportedAt: new Date().toISOString(),
     products: products,
     goals: goals,

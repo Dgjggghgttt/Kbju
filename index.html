@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v12</title>
+<title>КБЖУ — дневник v13</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v12">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v13">
 <meta name="application-version" content="12">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
@@ -214,7 +214,7 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 11">
+  <div class="app-build-tag" aria-label="Версия приложения 13">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
     <span class="app-build-version">ВЕРСИЯ 12</span>
@@ -2883,7 +2883,24 @@ function migrateLegacyTrainingJournal(){
   var all=trainingJournalList();
   // Старые версии ошибочно создавали отдельную legacy-сессию на каждое упражнение. Объединяем их по дате.
   var merged={},keep=[];all.forEach(function(x){if(x&&x.legacy){var k=x.date||'unknown';if(!merged[k]){merged[k]=Object.assign({},x,{id:'legacy-'+k,sets:[]});keep.push(merged[k]);}merged[k].sets=merged[k].sets.concat(x.sets||[]);merged[k].plannedSets+=0;merged[k].completedSets=merged[k].sets.length;}else keep.push(x);});all=keep;
-  if(sGet('trainingJournalMigratedV42',false)){sSet('trainingSessions',all);return;}
+  // Восстанавливаем фактические подходы из дневного плана даже после прежней миграции.
+  // Это закрывает случай, когда факт виден в отчёте за день, но не попал в журнал.
+  var recoveredChanged=false;
+  Object.keys(workoutCache||{}).forEach(function(date){
+    (workoutCache[date]||[]).forEach(function(w){
+      if(!w||(!w.done&&!w.sets))return;
+      var vals=String(w.sets||'').split(/[\/,; ]+/).map(function(x){return parseInt(x,10);}).filter(function(x){return isFinite(x)&&x>0;});
+      if(!vals.length)return;
+      var key=exerciseMatchKey(w.name),already=all.some(function(session){return session.date===date&&(session.sets||[]).some(function(x){return exerciseMatchKey(x.name)===key;});});
+      if(already)return;
+      var sid='recovered-'+date+'-'+String(w.id||key).replace(/[^a-z0-9а-я]/gi,'').slice(0,24);
+      var rec=all.find(function(x){return x.id===sid;});
+      if(!rec){rec={id:sid,date:date,started:0,ended:0,sets:[],plannedSets:0,completedSets:0,status:'finished',recovered:true};all.push(rec);}
+      vals.forEach(function(reps,i){rec.sets.push({key:sid+':'+i,exerciseId:w.id,name:w.name,set:i+1,total:vals.length,reps:reps,weight:+w.weight||0});});
+      rec.plannedSets+=vals.length;rec.completedSets=rec.sets.length;recoveredChanged=true;
+    });
+  });
+  if(sGet('trainingJournalMigratedV42',false)){if(recoveredChanged)sSet('trainingSessions',all);else sSet('trainingSessions',all);return;}
   var seen={};
   all.forEach(function(s){(s.sets||[]).forEach(function(x){seen[x.key]=1;});});
   Object.keys(workoutCache||{}).forEach(function(date){
@@ -2967,6 +2984,30 @@ function workoutRestAnalysisCard(){
   return '<div class="section-title">Паузы и повторения</div><div class="card"><div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Среднее изменение повторений в следующем подходе при разной длительности отдыха. Чем больше записей, тем надёжнее вывод.</div>'+rows+'<div style="font-size:10px;color:var(--muted);margin-top:6px;">Пока данных мало — не делаем жёстких выводов. При падении повторений на 20% и более следующая пауза автоматически увеличивается минимум до 3 минут.</div></div>';
 }
 
+function suggestExercisesForDate(date){
+  var existing=(getWorkouts(date)||[]).slice(),taken={};existing.forEach(function(w){taken[exerciseMatchKey(w.name)]=1;});
+  var recent={};
+  trainingJournalList().filter(function(s){return s&&s.status==='finished'&&s.date>=shiftDate(date,-7)&&s.date<date;}).forEach(function(s){(s.sets||[]).forEach(function(x){var k=exerciseMatchKey(x.name);recent[k]=(recent[k]||0)+1;});});
+  var load=weeklyMuscleLoadBefore(date,7),candidates=[],seen={};
+  Object.keys(WORKOUT_TEMPLATES).forEach(function(code){(WORKOUT_TEMPLATES[code]||[]).forEach(function(item){var name=resolveExerciseReplacement(item.name),key=exerciseMatchKey(name);if(seen[key]||taken[key])return;seen[key]=1;var profile=exerciseMuscleProfile(name),score=0;profile.primary.forEach(function(m){score+=(load[m]||0)*2;});profile.secondary.forEach(function(x){score+=(load[x[0]]||0)*x[1];});score+=(recent[key]||0)*2;candidates.push({item:item,name:name,key:key,score:score,priority:workoutPriority(name)});});});
+  candidates.sort(function(a,b){return a.score-b.score||a.priority-b.priority;});
+  var chosen=candidates.slice(0,3);if(!chosen.length){showToast('Нет упражнений для добавления');return;}
+  var rows=chosen.map(function(c){var it=Object.assign({},c.item,{name:c.name,n:Math.max(3,Math.min(4,+c.item.n||3))}),nx=planForExercise(it,date),sets=parseSetArray(nx.sets);while(sets.length<3)sets.push(sets[sets.length-1]||8);if(sets.length>4)sets=sets.slice(0,4);nx.sets=sets.join('/');return {id:uid(),name:c.name,weight:nx.weight,sets:'',targetWeight:nx.weight,targetSets:nx.sets,advice:nx.text,planned:true,done:false,fromDate:nx.fromDate||null,tpl:null,auto:false,manual:true};});
+  markPlanCustom(date);saveWorkouts(date,existing.concat(rows));showToast('Добавлено упражнений: '+rows.length);render();
+}
+function copyTrainingSessionToPlan(sessionId){
+  var session=trainingJournalList().find(function(x){return x.id===sessionId;});if(!session||!session.sets||!session.sets.length)return;
+  var groups={},ordered=[];(session.sets||[]).forEach(function(x){var key=exerciseMatchKey(x.name);if(!groups[key]){groups[key]={name:x.name,sets:[]};ordered.push(key);}groups[key].sets.push(x);});
+  var current=(getWorkouts(currentDate)||[]).slice(),used={};current.forEach(function(w){used[exerciseMatchKey(w.name)]=1;});
+  var copied=[];ordered.forEach(function(key){var g=groups[key];if(used[key])return;var last=getLastRealSession(g.name,currentDate),nx=null;
+    if(last)nx=suggestNextSession(last,g.name);
+    if(!nx){var reps=g.sets.map(function(x){return +x.reps||8;});nx={weight:g.sets[0].weight,sets:reps.join('/'),text:'Перенесён результат выбранной тренировки; прогрессия начнётся после следующего факта.'};}
+    var target=parseSetArray(nx.sets);if(target.length<3)while(target.length<3)target.push(target[target.length-1]||8);if(target.length>4)target=target.slice(0,4);
+    copied.push({id:uid(),name:g.name,weight:nx.weight,sets:'',targetWeight:nx.weight,targetSets:target.join('/'),advice:nx.text,planned:true,done:false,fromDate:last?last.date:session.date,tpl:null,auto:false,manual:true});used[key]=1;
+  });
+  if(!copied.length){showToast('Все упражнения этой тренировки уже есть в плане');return;}
+  markPlanCustom(currentDate);saveWorkouts(currentDate,current.concat(copied));showToast('В план добавлено упражнений: '+copied.length);render();
+}
 function renderTrainingHistoryBlock(){
   var all=trainingJournalList().slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))||(+b.started||+b.ended||0)-(+a.started||+a.ended||0);}).slice(0,40);
   var html='<div class="section-title">История тренировок</div>';
@@ -2974,7 +3015,7 @@ function renderTrainingHistoryBlock(){
   return html+all.map(function(session){var sets=session.sets||[],cancelled=session.status==='cancelled',by={};sets.forEach(function(x){var k=String(x.exerciseId||exerciseMatchKey(x.name));(by[k]||(by[k]={name:x.name||'Упражнение',sets:[]})).sets.push(x);});
     var details='';if(cancelled)details='<div style="font-size:12px;color:var(--muted);margin-top:7px;">Отменена'+(session.cancelReason?' · '+escapeHTML(session.cancelReason):'')+'</div>';
     else{details=Object.keys(by).map(function(k){var g=by[k],score=trainingExerciseScore(g.sets),prior=trainingSessionComparison(session,g.name),prev=prior?trainingExerciseScore(prior):null;var comparable=prev&&((score.weight===0&&prev.weight===0)||(score.weight>0&&prev.weight>0));var arrow=!prev?'·':(!comparable?'·':(score.volume>prev.volume?'↑':(score.volume<prev.volume?'↓':'→')));var color=arrow==='↑'?'var(--green)':(arrow==='↓'?'var(--red)':'var(--muted)');var summary=(g.sets.length&&g.sets[0].weight&&!isBodyweightName(g.name)?g.sets[0].weight+' кг · ':'')+g.sets.map(function(x){var pause=x.actualRestSeconds,pauseTxt=pause!=null?' · пауза '+Math.floor(pause/60)+':'+String(pause%60).padStart(2,'0'):'';return x.reps+' раз'+pauseTxt;}).join(' · ');var delta=prev&&comparable?' · '+(score.volume-prev.volume>0?'+':'')+(score.volume-prev.volume)+' '+(score.weight?'кг·повт.':'повт.'):' · нет сопоставимого сравнения';return '<div class="entry"><div class="name">'+escapeHTML(g.name)+'<div style="font-size:11px;color:var(--muted);">'+summary+delta+'</div></div><div class="kcal" style="color:'+color+';font-weight:700;">'+arrow+'</div></div>';}).join('');if(session.comment)details+='<div style="font-size:12px;color:var(--muted);margin-top:8px;">Комментарий: '+escapeHTML(session.comment)+'</div>';}
-    return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(session.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':sets.length+' подходов')+'　⌄</span></summary>'+details+(!cancelled?'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Редактировать тренировку</button>':'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Изменить запись</button>')+'</details>';
+    return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(session.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':sets.length+' подходов')+'　⌄</span></summary>'+details+(!cancelled?'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Редактировать тренировку</button>':'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Изменить запись</button>')+(!cancelled&&sets.length?'<button type="button" class="btn ghost" data-copy-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:6px;">Скопировать тренировку в план</button>':'')+'</details>';
   }).join('');
 }
 function renderWorkoutsTab(content,fab){
@@ -2995,7 +3036,7 @@ function renderWorkoutsTab(content,fab){
   if(rows.length){
     html+=orderWorkoutRows(rows).map(function(w,i){var realIndex=rows.indexOf(w),last=getLastRealSession(w.name,currentDate),lastLine=last?'Прошлый раз: '+(isBodyweightName(w.name)?'собственный вес · ':(last.weight!=null?last.weight+' кг · ':''))+(last.sets||'—')+' · '+fmtDateHuman(last.date):'Пока нет выполненных записей';return '<div class="entry" style="flex-wrap:wrap;"><div class="name" data-plan-muscle-index="'+realIndex+'" style="flex:1;min-width:150px;cursor:pointer;">'+escapeHTML(w.name||'Упражнение')+' <span style="color:var(--green);font-size:10px;">ⓘ мышцы</span><div style="font-size:11px;color:var(--muted);">'+escapeHTML((isBodyweightName(w.name)?'собственный вес · ':(w.targetWeight!=null?w.targetWeight+' кг · ':''))+(w.targetSets||w.sets||'План не задан'))+'</div><div style="font-size:10px;color:var(--green);margin-top:3px;">'+escapeHTML(lastLine)+'</div></div><button class="btn ghost" data-wedit-index="'+realIndex+'">Изменить</button><button class="btn ghost" data-wreplace-index="'+realIndex+'">Заменить</button><button class="del" data-wdelete-index="'+realIndex+'">✕</button></div>';}).join('');
   }else html+='<div class="empty">На этот день пока нет упражнений.</div>';
-  html+='<button class="btn ghost" id="wAdd" style="width:100%;margin-top:8px;">＋ Добавить упражнение</button><button class="btn ghost" id="wSeed" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button><button class="btn ghost" id="wLibrary" style="width:100%;margin-top:6px;">База упражнений</button></div>';
+  html+='<button class="btn ghost" id="wAdd" style="width:100%;margin-top:8px;">＋ Добавить упражнение</button><button class="btn ghost" id="wSuggest" style="width:100%;margin-top:6px;">Подобрать упражнения</button><button class="btn ghost" id="wSeed" style="width:100%;margin-top:6px;">Подставить план с прогрессией</button><button class="btn ghost" id="wLibrary" style="width:100%;margin-top:6px;">База упражнений</button></div>';
   }
    if(!dayFact.length&&rows.length)html+=planMevSummary()+'<button class="btn ghost" id="cancelPlannedWorkout" style="width:100%;margin:0 0 8px;">Отменить тренировку</button>';
    html+='<button class="btn ghost" id="workoutAddMeasure" style="width:100%;margin:0 0 8px;">＋ Замеры тела</button>';
@@ -3009,6 +3050,7 @@ function renderWorkoutsTab(content,fab){
   content.querySelectorAll('[data-load-detail]').forEach(function(el){el.onclick=function(){var a=el.getAttribute('data-load-detail').split('|');openLoadDetail(a[0],a.slice(1).join('|'));};});
   content.querySelectorAll('[data-plan-muscle-index]').forEach(function(el){el.onclick=function(){var ix=Number(el.getAttribute('data-plan-muscle-index')),w=(getWorkouts(currentDate)||[])[ix];if(w)openExerciseMuscleBreakdown(Object.assign({},w,{sets:w.targetSets||w.sets||'3x10'}));};});
   content.querySelectorAll('[data-edit-session]').forEach(function(b){b.onclick=function(e){e.preventDefault();e.stopPropagation();openTrainingSessionEditor(b.getAttribute('data-edit-session'));};});
+  content.querySelectorAll('[data-copy-session]').forEach(function(b){b.onclick=function(e){e.preventDefault();e.stopPropagation();copyTrainingSessionToPlan(b.getAttribute('data-copy-session'));};});
   content.querySelectorAll('[data-training-date]').forEach(function(b){b.onclick=function(){currentDate=b.getAttribute('data-training-date');render();};});
   var measureBtn=document.getElementById('workoutAddMeasure');if(measureBtn)measureBtn.onclick=function(){openMeasureForm(null);};
   var cancelPlanned=document.getElementById('cancelPlannedWorkout');if(cancelPlanned)cancelPlanned.onclick=function(){var reason=prompt('Почему тренировка отменена?');if(reason===null)return;reason=String(reason).trim();if(!reason){showToast('Укажи причину отмены');return;}var all=trainingJournalList();all.push({id:uid(),date:currentDate,started:Date.now(),ended:Date.now(),sets:[],plannedSets:0,completedSets:0,status:'cancelled',cancelReason:reason});sSet('trainingSessions',all.slice(-300));showToast('Отмена сохранена в истории');render();};
@@ -3017,6 +3059,7 @@ function renderWorkoutsTab(content,fab){
   var nextDay=document.getElementById('workoutNextDay');if(nextDay)nextDay.onclick=function(){currentDate=shiftDate(currentDate,1);render();};
   var todayBtn=document.getElementById('workoutToday');if(todayBtn)todayBtn.onclick=function(){currentDate=todayStr();render();};
   var add=document.getElementById('wAdd');if(add)add.onclick=function(){openWorkoutForm(null);};
+  var suggest=document.getElementById('wSuggest');if(suggest)suggest.onclick=function(){suggestExercisesForDate(currentDate);};
   var seed=document.getElementById('wSeed');if(seed)seed.onclick=function(){if(getWorkouts(currentDate).length){showToast('План уже заполнен');return;}autoSeedWorkoutsForDate(currentDate,true);render();};
   var lib=document.getElementById('wLibrary');if(lib)lib.onclick=openExerciseCatalog;
   content.querySelectorAll('[data-wedit-index]').forEach(function(b){b.onclick=function(){var i=Number(b.getAttribute('data-wedit-index')),w=getWorkouts(currentDate)[i];if(w)openWorkoutForm(w);};});

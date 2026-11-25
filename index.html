@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v13</title>
+<title>КБЖУ — дневник v14</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v13">
-<meta name="application-version" content="12">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v14">
+<meta name="application-version" content="14">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 13">
+  <div class="app-build-tag" aria-label="Версия приложения 14">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 12</span>
+    <span class="app-build-version">ВЕРСИЯ 14</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -744,12 +744,12 @@ function suggestNextSession(last, name){
   var maxRep = Math.max.apply(null,sets);
   if(bw){
     if(minRir != null && minRir <= 2) return {weight:last.weight,sets:sets.join('/'),text:'Подтягивания или другое упражнение с собственным весом дались тяжело (RIR 0–2). Повтори тот же объём; не добавляй повторы через силу.'};
-    var bodyNext = sets.slice();
-    // Ровные подходы: +1 в первый. Падающая лесенка: +1 в последний.
-    // При неровном/смешанном результате добавляем ровно 1 повтор в первый подход;
-    // никогда не перескакиваем сразу с 3/4/1 на 5/4/3.
-    var descending = bodyNext.length>1 && bodyNext.every(function(v,i,a){return i===0 || a[i-1]>=v;});
-    var addIndex = descending ? bodyNext.length-1 : 0;
+    var bodyNext = sets.slice().sort(function(a,b){return b-a;});
+    // Сначала выравниваем результат по убыванию: сильные подходы идут первыми,
+    // дополнительный повтор добавляется в самый слабый (последний) подход.
+    // При равных значениях +1 получает первый подход.
+    var addIndex = bodyNext.length-1;
+    for(var bi=0;bi<bodyNext.length-1;bi++){if(bodyNext[bi]===bodyNext[addIndex]){addIndex=bi;break;}}
     bodyNext[addIndex] = Math.min(15, bodyNext[addIndex] + 1);
     return {weight:last.weight, sets:bodyNext.join('/'), text:'Добавь один повтор по распределению нагрузки: '+bodyNext.join('/')+'. Когда все подходы станут ровными и техника сохранится, добавляй следующий повтор.'};
   }
@@ -767,9 +767,9 @@ function suggestNextSession(last, name){
     return {weight:nextW, sets:nextSets, text:'Все подходы достигли 12 повторов. Следующий шаг: '+nextW+' кг ('+stepTxt+') и '+nextSets+'. Если техника ухудшится — оставь прежний вес.'};
   }
 
-  // Добавляем ровно один повтор в самый слабый подход; при равенстве — в первый.
-  var next = sets.slice(), addIndex=0;
-  for(var si=1;si<sets.length;si++){if(sets[si]<sets[addIndex])addIndex=si;}
+  // Упорядочиваем цель от сильного подхода к слабому и добавляем один повтор
+  // в первый из минимальных подходов. Например 12/8/8/12 -> 12/12/9/8.
+  var next = sets.slice().sort(function(a,b){return b-a;}), minValue=Math.min.apply(null,next), addIndex=next.indexOf(minValue);
   next[addIndex]=Math.min(12,next[addIndex]+1);
   return {weight:last.weight, sets:next.join('/'), text:'Добавь один повтор в выбранный подход: '+last.weight+' кг · '+next.join('/')+'. Остальные подходы пока оставь без изменений.'};
 }
@@ -2547,7 +2547,7 @@ function workoutFlowCard(){
   if(!st||st.status==='finished'){
     var done=st&&st.summary,extra='';
     if(done&&done.details&&done.details.length){extra='<div style="margin-top:8px;">'+done.details.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:11px;color:var(--muted)">'+x.sets+' · '+(x.drop?'снижение общего результата ≥30%':'без снижения общего результата')+'</div><div style="font-size:11px;color:var(--green);margin-top:3px;">Следующая цель: '+escapeHTML(x.next||'повтори текущий результат')+'</div></div><div class="kcal">'+(x.volume||0)+' кг·повт.</div></div>';}).join('')+'</div>';}
-    return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><b>🏋️ Режим тренировки</b>'+(done?'<div style="font-size:13px;margin:7px 0;">Последняя тренировка: '+done.minutes+' мин · '+done.completed+' из '+done.planned+' подходов · '+done.exercises+' упражнений</div>'+extra:'')+'<div style="font-size:12px;color:var(--muted);margin:5px 0 9px;">Секундомер подходов, запись после каждого подхода и анализ результата.</div><button class="btn primary" id="workoutFlowStart" style="width:100%;">Начать тренировку</button></div>';
+    return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><b>🏋️ Режим тренировки</b>'+(done?'<div style="font-size:13px;margin:7px 0;">Последняя тренировка: '+(done.durationSeconds!=null?formatWorkoutDuration(done.durationSeconds):done.minutes+' мин')+' · '+done.completed+' из '+done.planned+' подходов · '+done.exercises+' упражнений</div>'+extra:'')+'<div style="font-size:12px;color:var(--muted);margin:5px 0 9px;">Секундомер подходов, запись после каждого подхода и анализ результата.</div><button class="btn primary" id="workoutFlowStart" style="width:100%;">Начать тренировку</button></div>';
   }
   var cur=st.queue[st.index],resting=st.status==='rest',elapsed=resting?Math.max(0,Math.ceil((st.restEnd-Date.now())/1000)):Math.max(0,Math.floor((Date.now()-st.setStarted)/1000));
   var clock=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
@@ -2590,7 +2590,7 @@ function workoutFlowFinish(st){
     var next=suggestNextSession({name:row.name,weight:row.weight,sets:reps.join('/'),rirBySet:row.rirBySet||[]},row.name);
     details.push({name:row.name,sets:reps.join('/')||'нет записанных повторов',drop:drop,volume:round((+row.weight||0)*reps.reduce(function(a,b){return a+b;},0)),next:next?(isBodyweightName(row.name)?'собственный вес':(next.weight==null?'—':next.weight+' кг'))+' · '+next.sets+' — '+next.text:'повтори текущий результат'});
   });
-  st.summary={minutes:minutes,completed:completed,planned:st.queue.length,exercises:Object.keys(exercises).length,details:details};
+  st.summary={minutes:minutes,durationSeconds:Math.max(0,Math.round((st.ended-st.started)/1000)),completed:completed,planned:st.queue.length,exercises:Object.keys(exercises).length,details:details};
   saveTrainingJournalSession(st,true);sSet(workoutFlowKey(currentDate),st);workoutFlowWake(false);if(_workoutFlowInterval)clearInterval(_workoutFlowInterval);
   showToast('Тренировка завершена · '+minutes+' мин · '+completed+'/'+st.queue.length+' подходов');
   workoutFlowSpeak('Тренировка завершена. '+minutes+' минут. Выполнено '+completed+' из '+st.queue.length+' подходов.');render();
@@ -2604,7 +2604,7 @@ function bindWorkoutFlow(){
     if(st.status==='set'){
       var inp=document.getElementById('workoutFlowReps'),reps=inp&&inp.value!==''?Math.max(0,parseInt(inp.value,10)):null;
       if(reps==null||!isFinite(reps)||reps<1){showToast('Введи фактическое число повторений — подход не будет потерян');return;}
-      var c=st.queue[st.index];c.actualReps=reps;c.completedAt=Date.now();st.completed++;workoutFlowSaveReps(st);
+      var c=st.queue[st.index];c.actualReps=reps;c.completedAt=Date.now();c.actualDurationSeconds=Math.max(0,Math.round((c.completedAt-(c.startedAt||st.setStarted||c.completedAt))/1000));st.completed++;workoutFlowSaveReps(st);
       var prev=st.queue.slice(0,st.index).filter(function(q){return q.id===c.id&&q.actualReps!=null;}).slice(-1)[0],rest=c.rest;
       if(prev&&prev.actualReps>0&&reps<=prev.actualReps*.8)rest=Math.min(240,rest+60);
       st.restSeconds=rest;
@@ -2612,7 +2612,7 @@ function bindWorkoutFlow(){
       st.status='rest';st.restEnd=Date.now()+rest*1000;st._notified=false;sSet(workoutFlowKey(currentDate),st);workoutFlowSpeak('Отдых '+Math.round(rest/60)+' минут');render();
     }else if(st.status==='rest'){
       var finishedSet=st.queue[st.index],nextSet=st.queue[st.index+1];if(nextSet&&finishedSet&&finishedSet.completedAt)finishedSet.actualRestSeconds=Math.max(0,Math.round((Date.now()-finishedSet.completedAt)/1000));
-      st.index++;st.status='set';st.setStarted=Date.now();delete st.restEnd;workoutFlowSaveReps(st);sSet(workoutFlowKey(currentDate),st);workoutFlowSpeak(st.queue[st.index].name+', подход '+st.queue[st.index].set);render();
+      st.index++;st.status='set';st.setStarted=Date.now();if(st.queue[st.index])st.queue[st.index].startedAt=st.setStarted;delete st.restEnd;workoutFlowSaveReps(st);sSet(workoutFlowKey(currentDate),st);workoutFlowSpeak(st.queue[st.index].name+', подход '+st.queue[st.index].set);render();
     }
   };
   var finish=document.getElementById('workoutFlowFinish');if(finish)finish.onclick=function(){var st=workoutFlowState();if(st)workoutFlowFinish(st);};
@@ -2865,14 +2865,14 @@ function renderTabPreferences(){
 }
 function applyTabPreferences(){var nav=document.querySelector('nav.tabs');if(!nav)return;tabPreferences.order.forEach(function(k){var b=nav.querySelector('[data-tab="'+k+'"]');if(b)nav.appendChild(b);});nav.querySelectorAll('button').forEach(function(b){b.style.display=tabPreferences.hidden.indexOf(b.dataset.tab)>=0?'none':'';});if(tabPreferences.hidden.indexOf(activeTab)>=0){activeTab=tabPreferences.order.find(function(k){return tabPreferences.hidden.indexOf(k)<0;})||'diary';}}
 
-function trainingJournalList(){var a=sGet('trainingSessions',[]);if(!Array.isArray(a))return [];var changed=false;a.forEach(function(session){(session.sets||[]).forEach(function(x){if(/гантел/i.test(x.name||'')&&Math.abs((+x.weight||0)-13)<0.001){x.weight=13.5;changed=true;}if(isBodyweightName(x.name)){var bw=bodyKgAtDate(session.date);if(bw!=null&&Math.abs((+x.weight||0)-bw)>0.05){x.weight=bw;changed=true;}}});});if(changed)sSet('trainingSessions',a);return a;}
+function trainingJournalList(){var a=sGet('trainingSessions',[]);if(!Array.isArray(a))return [];var changed=false;var seenSessions={},deduped=[];a.forEach(function(session){var sig=(session.date||'')+'|'+(session.sets||[]).map(function(x){return exerciseMatchKey(x.name)+'@'+(+x.weight||0)+'x'+(+x.reps||0);}).sort().join(';');if((session.sets||[]).length&&seenSessions[sig]){changed=true;var old=deduped[seenSessions[sig]-1];if((+session.started||0)>(+old.started||0)){deduped[seenSessions[sig]-1]=session;}return;}if((session.sets||[]).length)seenSessions[sig]=deduped.length+1;deduped.push(session);});a=deduped;a.forEach(function(session){(session.sets||[]).forEach(function(x){if(/гантел/i.test(x.name||'')&&Math.abs((+x.weight||0)-13)<0.001){x.weight=13.5;changed=true;}if(isBodyweightName(x.name)){var bw=bodyKgAtDate(session.date);if(bw!=null&&Math.abs((+x.weight||0)-bw)>0.05){x.weight=bw;changed=true;}}});});if(changed)sSet('trainingSessions',a);return a;}
 function saveTrainingJournalSession(st,finished){
   if(!st||!st.sessionId)return;
   var all=trainingJournalList(),idx=all.findIndex(function(x){return x.id===st.sessionId;});
   var rec=idx>=0?all[idx]:{id:st.sessionId,date:st.date||currentDate,started:st.started||Date.now(),ended:null,sets:[]};
   rec.date=st.date||rec.date||currentDate;rec.started=st.started||rec.started;rec.ended=finished?(st.ended||Date.now()):null;
   rec.sets=(st.queue||[]).filter(function(q){return q.actualReps!=null;}).map(function(q){
-    return {key:q.key||((q.id||'')+':'+q.set),exerciseId:q.id,name:q.name,set:q.set,total:q.total,reps:+q.actualReps,weight:+q.weight||0,targetReps:q.targetReps||null,actualRestSeconds:q.actualRestSeconds||null,completedAt:q.completedAt||null};
+    return {key:q.key||((q.id||'')+':'+q.set),exerciseId:q.id,name:q.name,set:q.set,total:q.total,reps:+q.actualReps,weight:+q.weight||0,targetReps:q.targetReps||null,actualDurationSeconds:q.actualDurationSeconds==null?null:q.actualDurationSeconds,actualRestSeconds:q.actualRestSeconds==null?null:q.actualRestSeconds,startedAt:q.startedAt||null,completedAt:q.completedAt||null};
   });
   rec.plannedSets=(st.queue||[]).length;rec.completedSets=rec.sets.length;rec.status=finished?'finished':'in_progress';
   if(st.summary)rec.summary=st.summary;
@@ -3008,14 +3008,15 @@ function copyTrainingSessionToPlan(sessionId){
   if(!copied.length){showToast('Все упражнения этой тренировки уже есть в плане');return;}
   markPlanCustom(currentDate);saveWorkouts(currentDate,current.concat(copied));showToast('В план добавлено упражнений: '+copied.length);render();
 }
+function formatWorkoutDuration(seconds){seconds=Math.max(0,Math.round(+seconds||0));var m=Math.floor(seconds/60),s=seconds%60;return m+' мин '+String(s).padStart(2,'0')+' сек';}
 function renderTrainingHistoryBlock(){
   var all=trainingJournalList().slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))||(+b.started||+b.ended||0)-(+a.started||+a.ended||0);}).slice(0,40);
   var html='<div class="section-title">История тренировок</div>';
   if(!all.length)return html+'<div class="empty">История появится после первой тренировки.</div>';
   return html+all.map(function(session){var sets=session.sets||[],cancelled=session.status==='cancelled',by={};sets.forEach(function(x){var k=String(x.exerciseId||exerciseMatchKey(x.name));(by[k]||(by[k]={name:x.name||'Упражнение',sets:[]})).sets.push(x);});
     var details='';if(cancelled)details='<div style="font-size:12px;color:var(--muted);margin-top:7px;">Отменена'+(session.cancelReason?' · '+escapeHTML(session.cancelReason):'')+'</div>';
-    else{details=Object.keys(by).map(function(k){var g=by[k],score=trainingExerciseScore(g.sets),prior=trainingSessionComparison(session,g.name),prev=prior?trainingExerciseScore(prior):null;var comparable=prev&&((score.weight===0&&prev.weight===0)||(score.weight>0&&prev.weight>0));var arrow=!prev?'·':(!comparable?'·':(score.volume>prev.volume?'↑':(score.volume<prev.volume?'↓':'→')));var color=arrow==='↑'?'var(--green)':(arrow==='↓'?'var(--red)':'var(--muted)');var summary=(g.sets.length&&g.sets[0].weight&&!isBodyweightName(g.name)?g.sets[0].weight+' кг · ':'')+g.sets.map(function(x){var pause=x.actualRestSeconds,pauseTxt=pause!=null?' · пауза '+Math.floor(pause/60)+':'+String(pause%60).padStart(2,'0'):'';return x.reps+' раз'+pauseTxt;}).join(' · ');var delta=prev&&comparable?' · '+(score.volume-prev.volume>0?'+':'')+(score.volume-prev.volume)+' '+(score.weight?'кг·повт.':'повт.'):' · нет сопоставимого сравнения';return '<div class="entry"><div class="name">'+escapeHTML(g.name)+'<div style="font-size:11px;color:var(--muted);">'+summary+delta+'</div></div><div class="kcal" style="color:'+color+';font-weight:700;">'+arrow+'</div></div>';}).join('');if(session.comment)details+='<div style="font-size:12px;color:var(--muted);margin-top:8px;">Комментарий: '+escapeHTML(session.comment)+'</div>';}
-    return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(session.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':sets.length+' подходов')+'　⌄</span></summary>'+details+(!cancelled?'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Редактировать тренировку</button>':'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Изменить запись</button>')+(!cancelled&&sets.length?'<button type="button" class="btn ghost" data-copy-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:6px;">Скопировать тренировку в план</button>':'')+'</details>';
+    else{details=Object.keys(by).map(function(k){var g=by[k],score=trainingExerciseScore(g.sets),prior=trainingSessionComparison(session,g.name),prev=prior?trainingExerciseScore(prior):null;var comparable=prev&&((score.weight===0&&prev.weight===0)||(score.weight>0&&prev.weight>0));var arrow=!prev?'·':(!comparable?'·':(score.volume>prev.volume?'↑':(score.volume<prev.volume?'↓':'→')));var color=arrow==='↑'?'var(--green)':(arrow==='↓'?'var(--red)':'var(--muted)');var summary=(g.sets.length&&g.sets[0].weight&&!isBodyweightName(g.name)?g.sets[0].weight+' кг · ':'')+g.sets.slice().sort(function(a,b){return (+a.set||0)-(+b.set||0);}).map(function(x,i){var dur=x.actualDurationSeconds,pause=x.actualRestSeconds,durTxt=dur!=null?' ('+dur+' сек)':'',pauseTxt=pause!=null?' · пауза '+pause+' сек':'';return (i+1)+' подход — '+x.reps+' раз'+durTxt+pauseTxt;}).join(' · ');var delta=prev&&comparable?' · '+(score.volume-prev.volume>0?'+':'')+(score.volume-prev.volume)+' '+(score.weight?'кг·повт.':'повт.'):' · нет сопоставимого сравнения';return '<div class="entry"><div class="name">'+escapeHTML(g.name)+'<div style="font-size:11px;color:var(--muted);">'+summary+delta+'</div></div><div class="kcal" style="color:'+color+';font-weight:700;">'+arrow+'</div></div>';}).join('');if(session.comment)details+='<div style="font-size:12px;color:var(--muted);margin-top:8px;">Комментарий: '+escapeHTML(session.comment)+'</div>';}
+    return '<details class="card" style="margin-bottom:7px;padding:10px 12px;"><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center;"><b>'+escapeHTML(fmtDateHuman(session.date||''))+'</b><span style="font-size:12px;color:var(--muted);">'+(cancelled?'Отменена':sets.length+' подходов'+(session.started&&session.ended?' · '+formatWorkoutDuration((session.ended-session.started)/1000):''))+'　⌄</span></summary>'+details+(!cancelled?'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Редактировать тренировку</button>':'<button type="button" class="btn ghost" data-edit-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:9px;">Изменить запись</button>')+(!cancelled&&sets.length?'<button type="button" class="btn ghost" data-copy-session="'+escapeHTML(session.id)+'" style="width:100%;margin-top:6px;">Скопировать тренировку в план</button>':'')+'</details>';
   }).join('');
 }
 function renderWorkoutsTab(content,fab){

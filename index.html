@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v16</title>
+<title>КБЖУ — дневник v17</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v16">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v17">
 <meta name="application-version" content="14">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 16">
+  <div class="app-build-tag" aria-label="Версия приложения 17">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 16</span>
+    <span class="app-build-version">ВЕРСИЯ 17</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -1034,44 +1034,39 @@ function prepareWorkoutsForDate(date){
 }
 
 function collectExerciseHistory(exerciseName){
-  var nameLower = (exerciseName||'').toLowerCase();
-  var matchKey = exerciseMatchKey(exerciseName);
-  var pts = [];
-  function scanDate(date, list){
-    (list||[]).forEach(function(w){
-      if(w&&/гантел/i.test(w.name||'')&&Math.abs((+w.weight||0)-13)<0.001)w.weight=13.5;
-      if(((w.name||'').toLowerCase() === nameLower || exerciseMatchKey(w.name) === matchKey) && (w.weight != null && !isNaN(w.weight) || isBodyweightName(w.name) && w.sets)){
-        // пропускаем чисто плановые без факта
-        if(w.planned && !w.done && !(w.sets && String(w.sets).trim())) return;
-        var reps = parseTotalReps(w.sets||'');
-        var bodyweight = isBodyweightName(w.name);
-        var volume = bodyweight ? reps : w.weight * (reps > 0 ? reps : 1);
-        pts.push({date:date, weight:bodyweight?null:w.weight, bodyweight:bodyweight, sets:w.sets||'', reps:reps, volume:volume, rir:w.rir==null?null:+w.rir, planned:!!w.planned, done:!!w.done});
-      }
+  var nameLower=(exerciseName||'').toLowerCase(),matchKey=exerciseMatchKey(exerciseName),pts=[],journalByDate={};
+  // Фактический журнал — главный источник. Он содержит реальные подходы,
+  // тогда как workoutCache может содержать устаревший план с другим весом.
+  trainingJournalList().forEach(function(session){
+    if(!session||session.status!=='finished'||!Array.isArray(session.sets))return;
+    var groups={};
+    session.sets.forEach(function(x){
+      if(!x||!x.name||!(x.name.toLowerCase()===nameLower||exerciseMatchKey(x.name)===matchKey))return;
+      var k=exerciseMatchKey(x.name);(groups[k]||(groups[k]={name:x.name,sets:[],weight:x.weight==null?null:+x.weight})).sets.push(x);
     });
-  }
-  Object.keys(workoutCache).forEach(function(d){ scanDate(d, workoutCache[d]); });
-  Object.keys(_idbCache).forEach(function(k){if(k.indexOf('workout:')===0){var d=k.slice(8);if(!workoutCache[d])scanDate(d,_idbCache[k]);}});
-  try{
-    if(_storageOk){
-      for(var i=0;i<localStorage.length;i++){
-        var k = localStorage.key(i);
-        if(k && k.indexOf('workout:')===0){
-          var d = k.slice(8);
-          if(!workoutCache[d]){
-            try{
-              var list = JSON.parse(localStorage.getItem(k));
-              scanDate(d, list);
-            }catch(e){}
-          }
-        }
-      }
-    }
-  }catch(e){}
-  pts.sort(function(a,b){ return a.date.localeCompare(b.date); });
-  // Сохраняем все записи, включая несколько рабочих подходов/вариантов за день.
-  // Для графика сортируем по дате и объёму, не скрывая слабые подходы.
-  return pts.sort(function(a,b){ return a.date.localeCompare(b.date) || a.volume-b.volume; });
+    Object.keys(groups).forEach(function(k){var g=groups[k],vals=g.sets.slice().sort(function(a,b){return (+a.set||0)-(+b.set||0);}).map(function(x){return +x.reps||0;}).filter(function(x){return x>0;});if(!vals.length)return;
+      (journalByDate[session.date]||(journalByDate[session.date]={}))[k]=1;
+      var bw=isBodyweightName(g.name),total=vals.reduce(function(a,b){return a+b;},0);
+      pts.push({date:session.date,weight:bw?null:g.weight,bodyweight:bw,sets:vals.join('/'),reps:total,volume:bw?total:(g.weight||0)*total,rir:null,planned:false,done:true,source:'journal'});
+    });
+  });
+  function scanDate(date,list){(list||[]).forEach(function(w){
+    if(!w||!(w.name||'').trim())return;
+    var k=exerciseMatchKey(w.name);
+    if(!((w.name||'').toLowerCase()===nameLower||k===matchKey))return;
+    if(journalByDate[date]&&journalByDate[date][k])return;
+    if(!((w.weight!=null&&!isNaN(w.weight))||(isBodyweightName(w.name)&&w.sets)))return;
+    if(w.planned&&!w.done&&!(w.sets&&String(w.sets).trim()))return;
+    var reps=parseTotalReps(w.sets||''),bw=isBodyweightName(w.name);
+    pts.push({date:date,weight:bw?null:w.weight,bodyweight:bw,sets:w.sets||'',reps:reps,volume:bw?reps:w.weight*(reps>0?reps:1),rir:w.rir==null?null:+w.rir,planned:!!w.planned,done:!!w.done,source:'cache'});
+  });}
+  Object.keys(workoutCache||{}).forEach(function(d){scanDate(d,workoutCache[d]);});
+  Object.keys(_idbCache||{}).forEach(function(k){if(k.indexOf('workout:')===0){var d=k.slice(8);if(!workoutCache[d])scanDate(d,_idbCache[k]);}});
+  try{if(_storageOk){for(var i=0;i<localStorage.length;i++){var key=localStorage.key(i);if(key&&key.indexOf('workout:')===0){var d=key.slice(8);if(!workoutCache[d])try{scanDate(d,JSON.parse(localStorage.getItem(key)));}catch(e){}}}}}catch(e){}
+  pts.sort(function(a,b){return a.date.localeCompare(b.date)||(a.source==='journal'?-1:1);});
+  // Оставляем одну запись на дату: фактический журнал имеет приоритет над планом.
+  var byDate={};pts.forEach(function(x){var old=byDate[x.date];if(!old||x.source==='journal'||(!old.done&&x.done))byDate[x.date]=x;});
+  return Object.keys(byDate).sort().map(function(d){return byDate[d];});
 }
 
 function exerciseProgressSvg(history){

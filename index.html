@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, ">
-<title>КБЖУ — дневник v17</title>
+<title>КБЖУ — дневник v18</title>
 <meta name="theme-color" content="#3c6e47">
 <meta name="application-name" content="КБЖУ — дневник">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="КБЖУ v17">
+<meta name="apple-mobile-web-app-title" content="КБЖУ v18">
 <meta name="application-version" content="14">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
@@ -214,10 +214,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="app-build-tag" aria-label="Версия приложения 17">
+  <div class="app-build-tag" aria-label="Версия приложения 18">
     <span class="app-build-name">КБЖУ · ДНЕВНИК</span>
     <span id="storageStatus" style="font-size:10px;opacity:.85;flex:1;text-align:center;"></span>
-    <span class="app-build-version">ВЕРСИЯ 17</span>
+    <span class="app-build-version">ВЕРСИЯ 18</span>
   </div>
   <div class="receipt" id="receipt"></div>
   <div id="content"><div class="loading">Загрузка…</div></div>
@@ -721,11 +721,20 @@ function recentTrainingFatigue(){
 /** Минимальный шаг веса по инвентарю: блины 1,25 / 2,5 / 3 кг. Гантели: 1 блин 1,25 на гантель; штанга: 1,25 на сторону = 2,5 кг */
 function weightStepFor(name){var cfg=/гантел|молот/i.test(String(name||''))?equipmentConfig.dumbbell:equipmentConfig.barbell,plates=(cfg&&cfg.plates||[]).filter(function(x){return +x.weight>0&&+x.pairs>0;});return plates.length?Math.min.apply(null,plates.map(function(x){return +x.weight;}))*2:(/гантел|молот/i.test(String(name||''))?1.25:2.5);}
 
+function minRirPlaceholder(last){var a=Array.isArray(last.rirBySet)?last.rirBySet.filter(function(x){return x!=null&&isFinite(+x);}).map(Number):[];if(!a.length&&last.rir!=null)a=[+last.rir];return a.length?Math.min.apply(null,a):99;}
 function suggestNextSession(last, name){
   if(!last) return null;
   var bw = isBodyweightName(name || last.name);
   if(last.weight == null && !bw) return null;
   var sets = parseSetArray(last.sets);
+  // Подтягивания прогрессируют отдельно: не блокируем прибавку из-за
+  // общей усталости других мышечных групп и не возвращаем стартовые 3/3/3.
+  if(bw && sets.length){
+    if(minRirPlaceholder(last) <= 0) return {weight:last.weight,sets:sets.join('/'),text:'Был отказной подход — повтори тот же результат.'};
+    var pullNext=sets.slice().sort(function(a,b){return b-a;}), weakest=Math.min.apply(null,pullNext), pi=pullNext.lastIndexOf(weakest);
+    pullNext[pi]=Math.min(15,pullNext[pi]+1);
+    return {weight:last.weight,sets:pullNext.join('/'),text:'Добавь один повтор в самый слабый подход: '+pullNext.join('/')+'.'};
+  }
   var fatigue=recentTrainingFatigue();
   if(fatigue.high && sets.length>2){return {weight:last.weight,sets:sets.slice(0,-1).join('/'),text:'Автоконтроль объёма: высокая нагрузка за 7 дней ('+fatigue.sessions+' тренировок, '+fatigue.sets+' подходов). Временно убери один подход и не повышай вес.'};}
   if(!sets.length) return {weight:last.weight, sets:bw?'1/1/1':'8/8/8', text:'Начни с контролируемых подходов и оставляй 2–3 повтора в запасе.'};
@@ -2540,7 +2549,8 @@ function openWorkoutPreparation(){
 function workoutFlowCard(){
   var st=workoutFlowState();
   if(!st||st.status==='finished'){
-    var done=st&&st.summary,extra='';
+    var saved=st&&st.sessionId?trainingJournalList().find(function(x){return String(x.id)===String(st.sessionId);}):null;
+    var done=st&&st.summary?st.summary:(saved&&saved.summary?saved.summary:null),extra='';
     if(done&&done.details&&done.details.length){extra='<div style="margin-top:8px;">'+done.details.map(function(x){return '<div class="entry"><div class="name">'+escapeHTML(x.name)+'<div style="font-size:11px;color:var(--muted)">'+x.sets+' · '+(x.drop?'снижение общего результата ≥30%':'без снижения общего результата')+'</div><div style="font-size:11px;color:var(--green);margin-top:3px;">Следующая цель: '+escapeHTML(x.next||'повтори текущий результат')+'</div></div><div class="kcal">'+(x.volume||0)+' кг·повт.</div></div>';}).join('')+'</div>';}
     return '<div class="card" id="workoutFlowCard" style="margin-top:8px;padding:12px;"><b>🏋️ Режим тренировки</b>'+(done?'<div style="font-size:13px;margin:7px 0;">Последняя тренировка: '+(done.durationSeconds!=null?formatWorkoutDuration(done.durationSeconds):done.minutes+' мин')+' · '+done.completed+' из '+done.planned+' подходов · '+done.exercises+' упражнений</div>'+extra:'')+'<div style="font-size:12px;color:var(--muted);margin:5px 0 9px;">Секундомер подходов, запись после каждого подхода и анализ результата.</div><button class="btn primary" id="workoutFlowStart" style="width:100%;">Начать тренировку</button></div>';
   }
@@ -3034,6 +3044,7 @@ function renderWorkoutsTab(content,fab){
   var dayFinished=daySessions.some(function(x){return x.status==='finished';});
   if(!dayFact.length){(getWorkouts(currentDate)||[]).forEach(function(w){if(!w||(!w.done&&!w.sets))return;parseSetArray(w.sets||'').forEach(function(reps,i){dayFact.push({name:w.name,set:i+1,reps:reps,weight:+w.weight||0});});if(dayFact.length)dayFinished=true;});}
   if(dayFact.length){
+    var factSeen={},factUnique=[];dayFact.forEach(function(x){var sig=[exerciseMatchKey(x.name),+x.set||0,+x.weight||0,+x.reps||0].join('|');if(factSeen[sig])return;factSeen[sig]=1;factUnique.push(x);});dayFact=factUnique;
     var byExercise={};dayFact.forEach(function(x){var n=x.name||'Упражнение';(byExercise[n]||(byExercise[n]=[])).push(x);});
     html+='<div class="card"><b>Факт за день</b><div style="font-size:12px;color:var(--muted);margin:4px 0 8px;">'+(dayFinished?'Тренировка завершена':'Записанные подходы')+' · '+dayFact.length+' подходов</div>'+Object.keys(byExercise).map(function(n){return '<div class="entry"><div class="name">'+escapeHTML(n)+'</div><div class="kcal">'+byExercise[n].map(function(x){return (isBodyweightName(x.name)?'':(x.weight?x.weight+' кг × ':''))+x.reps;}).join(' / ')+'</div></div>';}).join('')+'</div>';
   }else{
